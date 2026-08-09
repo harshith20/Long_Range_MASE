@@ -1,0 +1,7 @@
+numpy
+torch
+transformers
+sentence-transformers
+faiss-cpu
+datasets
+pandas
