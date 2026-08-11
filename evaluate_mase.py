@@ -56,19 +56,11 @@ def run_evaluation_pass(dataset_samples: List[Dict[str, Any]], w2: float, w4: fl
             print(f"[{config_name}] Failed to init engine for sample #{total_samples}: {e}", file=sys.stderr)
             continue
 
-        # Extract hallucinated summary field with fallbacks
-        text = None
-        if isinstance(sample, dict):
-            text = sample.get("hallucinated_summary") or sample.get("hallucinated") or sample.get("summary") or sample.get("generated_summary")
-        else:
-            # datasets objects may be Dataset dict-like
-            try:
-                text = sample["hallucinated_summary"]
-            except Exception:
-                for k in ("hallucinated_summary", "hallucinated", "summary", "generated_summary"):
-                    if k in sample:
-                        text = sample[k]
-                        break
+        # Extract hallucinated summary field directly from the dataset sample.
+        try:
+            text = sample["hallucinated_summary"]
+        except Exception:
+            text = None
 
         if not text:
             print(f"[{config_name}] Sample #{total_samples} missing expected summary field; skipping.", file=sys.stderr)
@@ -93,7 +85,7 @@ def run_evaluation_pass(dataset_samples: List[Dict[str, Any]], w2: float, w4: fl
             latency_ms = (t1 - t0) * 1000.0
             sentence_latencies_ms.append(latency_ms)
 
-            if isinstance(report, dict) and report.get("alarm"):
+            if isinstance(report, dict) and report["alarm"]:
                 alarms += 1
                 triggered = True
                 break  # stop processing this sample after alarm
