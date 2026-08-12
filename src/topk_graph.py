@@ -34,7 +34,7 @@ class TopKGraph:
         self.texts: List[str] = []
         self.nli = None
         try:
-            self.nli = pipeline("text-classification", model=nli_model, return_all_scores=True, device=-1)
+            self.nli = pipeline("text-classification", model=nli_model, top_k=None, device=-1)
         except Exception:
             self.nli = None
 

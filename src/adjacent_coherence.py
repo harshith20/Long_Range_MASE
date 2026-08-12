@@ -8,7 +8,8 @@ class AdjacentCoherence:
 
     def __init__(self, model_name: str = "roberta-large-mnli") -> None:
         try:
-            self.nli = pipeline("text-classification", model=model_name, return_all_scores=True, device=-1)
+            # FIX: Replaced return_all_scores=True with top_k=None
+            self.nli = pipeline("text-classification", model=model_name, top_k=None, device=-1)
         except Exception:
             self.nli = None
         self.prev_sentence: Optional[str] = None
