@@ -48,8 +48,10 @@ class ExtendedMASEEngine:
     """Compatibility wrapper used by evaluation scripts."""
 
     def __init__(self, w1: float = 1.0, w2: float = 1.0, w4: float = 1.0, threshold: float = 0.5, device: str = "cpu") -> None:
+
         weights = {"w1": float(w1), "w2": float(w2), "w3": float(w4)}
-        self.engine = MASEEngine(weights=weights, threshold=float(threshold))
+        # 3. Explicitly pass device=device into the coordinator
+        self.engine = MASEEngine(weights=weights, threshold=float(threshold), device=device)
 
     def reset(self) -> None:
         self.engine.reset()

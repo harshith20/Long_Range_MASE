@@ -19,9 +19,14 @@ class TopKGraph:
     against top-k nearest past sentences to surface contradiction scores.
     """
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2", nli_model: str = "roberta-large-mnli", k: int = 2) -> None:
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2", nli_model: str = "roberta-large-mnli", k: int = 2, device: str = "cpu") -> None:
         self.k = k
-        self.embedder = SentenceTransformer(model_name, device="cpu") if SentenceTransformer is not None else None
+        
+        # Route SentenceTransformer and HF Pipeline to GPU if device="cuda"
+        embed_device = "cuda" if device in ["cuda", "gpu"] else "cpu"
+        pipeline_device = 0 if device in ["cuda", "gpu"] else -1
+
+        self.embedder = SentenceTransformer(model_name, device=embed_device) if SentenceTransformer is not None else None
         if self.embedder is not None:
             if hasattr(self.embedder, "get_embedding_dimension"):
                 self.dim = self.embedder.get_embedding_dimension()
@@ -34,7 +39,7 @@ class TopKGraph:
         self.texts: List[str] = []
         self.nli = None
         try:
-            self.nli = pipeline("text-classification", model=nli_model, top_k=None, device=-1)
+            self.nli = pipeline("text-classification", model=nli_model, top_k=None, device=pipeline_device)
         except Exception:
             self.nli = None
 

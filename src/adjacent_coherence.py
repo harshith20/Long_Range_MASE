@@ -6,10 +6,12 @@ from transformers import pipeline
 class AdjacentCoherence:
     """Computes transition entropy between consecutive sentences using an NLI model."""
 
-    def __init__(self, model_name: str = "roberta-large-mnli") -> None:
+    def __init__(self, model_name: str = "roberta-large-mnli", device: str = "cpu") -> None:
+        # Convert device string to Hugging Face pipeline convention (0 for CUDA, -1 for CPU)
+        pipeline_device = 0 if device in ["cuda", "gpu"] else -1
+        
         try:
-            # FIX: Replaced return_all_scores=True with top_k=None
-            self.nli = pipeline("text-classification", model=model_name, top_k=None, device=-1)
+            self.nli = pipeline("text-classification", model=model_name, top_k=None, device=pipeline_device)
         except Exception:
             self.nli = None
         self.prev_sentence: Optional[str] = None
