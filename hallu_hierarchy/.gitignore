@@ -1,0 +1,6 @@
+outputs/
+checkpoints/
+*.npy
+*.npz
+*.pt
+*.tmp

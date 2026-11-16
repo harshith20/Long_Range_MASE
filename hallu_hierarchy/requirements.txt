@@ -1,0 +1,8 @@
+# torch is preinstalled on Kaggle; listed unpinned so pip leaves it alone.
+torch
+transformers>=4.45,<5
+datasets>=2.18
+numpy
+pyyaml
+tqdm
+pytest

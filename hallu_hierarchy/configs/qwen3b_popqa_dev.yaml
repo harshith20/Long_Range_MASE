@@ -1,0 +1,34 @@
+# M1 development run: Qwen2.5-3B-Instruct on 200 PopQA questions (Kaggle T4).
+run_name: qwen2.5-3b_popqa_dev200
+seed: 0
+# output_root: defaults to /kaggle/working/outputs on Kaggle, hallu_hierarchy/outputs locally
+
+model:
+  id: Qwen/Qwen2.5-3B-Instruct
+  revision: null        # pin a commit hash once the setup is final
+  dtype: float16
+  device: cuda
+
+data:
+  dataset: popqa
+  hf_id: akariasai/PopQA
+  hf_split: test
+  n_questions: 200
+  split_fractions: {train: 0.6, val: 0.2, test: 0.2}
+
+generation:
+  system_prompt: "Answer the question with only the answer, in as few words as possible. Do not explain."
+  max_new_tokens: 32
+  n_samples: 10
+  sample_temperature: 1.0
+  sample_top_p: 1.0     # 1.0 = off
+  sample_top_k: 0       # 0 = off
+  layer_stride: 4       # cache hidden-state indices 0, 4, 8, ... + last
+  checkpoint_every: 100
+  resume_dirs: []       # e.g. [/kaggle/input/<dataset-with-earlier-shards>]
+
+labeling:
+  correctness:
+    match_mode: contains   # exact | contains
+
+stages: [data, generate, correctness]
