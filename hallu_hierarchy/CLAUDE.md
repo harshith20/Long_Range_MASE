@@ -7,15 +7,17 @@ This folder is a self-contained research project inside a larger repo. Work only
 
 - **M1 done:** Qwen2.5-3B-Instruct on 200 PopQA questions ran end to end on Kaggle in ~40 s.
   One question per subject (no leakage), no empty predictions, ~4 tokens per answer. Accuracy 17% (strict).
-- **M1.5 in progress:** correctness fixes (§3). First review done — 3 disagreement rows decided (see §3, overrides).
-  - First M1.5 run (before alias cleaning/overrides): strict 34 correct (17.0%), relaxed 37, 13 wrong → abstain,
-    3 review rows. `ambiguous_subject` heuristic flagged 101/200 (50.5%) — too many; REPORT warns while > 30%.
-  - Code for the §3/§5/§7 spec is done: generic-alias cleaning, `overrides/popqa_qwen2.5-3b.csv` (3 rows),
-    `REVIEW.csv`, `REPORT.md` with STATUS/checks, `DASHBOARD.png`, fixed `kaggle/run.ipynb`, auto-discovery of
-    saved runs in `/kaggle/input`. Ambiguous-flagged rows are excluded only when wrong (rule 9 is about AH/UH).
-  - Generation now also saves per-head TBG attention (subject mass per layer × head, full rows at 3 layers)
-    for M2 — takes effect from the full PopQA run.
-- **Next:** rerun `--stages correctness` on the 200 → full PopQA generation (`configs/qwen3b_popqa_full.yaml`)
+- **M1.5 done** (commit 2ab927f, Kaggle, CPU, ~1 s): correct 36 (18.0%) | wrong 151 (75.5%) | abstain 13 (6.5%).
+  Strict 34 → relaxed 37 → final 36. Changes vs M1: 13 wrong → abstain, 2 wrong → correct (overrides).
+  Generic aliases dropped: church ×2 (no label changed). 3 overrides applied, 0 review rows left, gold_noise 1.
+  STATUS ⚠️ WARN only because `ambiguous_subject` flags 99/200 (49.5%) → 78 wrong rows excluded from AH/UH.
+  Decide at M3 (§9) whether to narrow the heuristic (e.g. creative-work relations only); it affects nothing before M3.
+  Creative-work relations are near 0% accuracy (screenwriter 3%, producer 4%, director 0%, composer 0%);
+  capital 64%, sport 40%, country 38%. Sample-level: 14.1% correct, 3.4% abstain.
+  Code: alias cleaning, `overrides/popqa_qwen2.5-3b.csv`, `REVIEW.csv`, `REPORT.md` + checks, `DASHBOARD.png`,
+  fixed `kaggle/run.ipynb`, auto-discovery of saved runs in `/kaggle/input`. Ambiguous rows excluded only when wrong.
+  Generation now also saves per-head TBG attention for M2 (takes effect from the full run).
+- **Next:** full PopQA generation (`configs/qwen3b_popqa_full.yaml`, `--stages data,generation,correctness`, T4)
   → develop M2 on a 200-question subset.
 
 ## 1. What this project is
