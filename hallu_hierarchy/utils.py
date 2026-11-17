@@ -41,6 +41,38 @@ def run_dir(cfg: dict[str, Any]) -> Path:
     return root / cfg["run_name"]
 
 
+def input_run_dirs(cfg: dict[str, Any]) -> list[Path]:
+    """Run folders to read upstream outputs from: this run first, then `input_run_dir`.
+
+    `input_run_dir` points at saved outputs (e.g. a Kaggle Dataset). The run folder may sit
+    directly there, under <dir>/<run_name>, or under <dir>/outputs/<run_name>.
+    """
+    dirs = [run_dir(cfg)]
+    extra = cfg.get("input_run_dir")
+    if extra:
+        base = Path(extra)
+        for cand in (base, base / cfg["run_name"], base / "outputs" / cfg["run_name"]):
+            if cand.is_dir() and cand not in dirs:
+                dirs.append(cand)
+    return dirs
+
+
+def find_upstream(cfg: dict[str, Any], rel: str) -> Path | None:
+    """First existing `<run folder>/<rel>` among input_run_dirs(cfg), or None."""
+    for d in input_run_dirs(cfg):
+        if (d / rel).exists():
+            return d / rel
+    return None
+
+
+def resolve_pkg_path(path: str | os.PathLike | None) -> Path | None:
+    """Absolute paths as given; relative paths relative to the package folder."""
+    if not path:
+        return None
+    p = Path(path)
+    return p if p.is_absolute() else PKG_DIR / p
+
+
 def set_seed(seed: int) -> None:
     random.seed(seed)
     try:

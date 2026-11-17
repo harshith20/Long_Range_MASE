@@ -10,7 +10,6 @@ from hallu_hierarchy.data.prepare import select_questions
 from hallu_hierarchy.data.splits import assign_subject_splits, check_no_leakage
 from hallu_hierarchy.generation.checkpoint import ShardStore
 from hallu_hierarchy.generation.prompts import subject_char_span, tokens_in_span
-from hallu_hierarchy.labeling.correctness import is_correct, match
 
 
 def test_normalize():
@@ -18,26 +17,6 @@ def test_normalize():
     assert normalize_answer("São Paulo") == "sao paulo"
     assert normalize_answer("New-York") == "new york"
     assert normalize_answer("an apple, a day") == "apple day"
-
-
-@pytest.mark.parametrize(
-    "pred,aliases,exact,contains",
-    [
-        ("Munich", ["Munich", "München"], True, True),
-        ("München.", ["Munich", "München"], True, True),
-        ("Munich, Germany", ["Munich"], False, True),
-        ("Ulm", ["Munich"], False, False),
-        ("Munichville", ["Munich"], False, False),  # whole-word only
-        ("", ["Munich"], False, False),
-        ("politician", ["politician", ""], True, True),  # empty alias ignored
-    ],
-)
-def test_match(pred, aliases, exact, contains):
-    m = match(pred, aliases)
-    assert m["exact_match"] is exact
-    assert m["contains_match"] is contains
-    assert is_correct(m, "exact") is exact
-    assert is_correct(m, "contains") is contains
 
 
 def test_subject_splits_no_leakage():

@@ -16,6 +16,7 @@ Positions (indices into prompt + greedy answer):
 
 from __future__ import annotations
 
+import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,7 @@ import torch.nn.functional as F
 from tqdm.auto import tqdm
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 
+from ..reporting.console import block, kv, pct
 from ..utils import read_jsonl, run_dir, set_seed, write_json, write_jsonl, write_meta
 from .checkpoint import ShardStore, fingerprint
 from .prompts import encode_prompt
@@ -235,7 +237,9 @@ def _stack(rows: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
     return {k: np.stack([r[k] for r in rows]) for k in rows[0]}
 
 
-def finalize(store: ShardStore, questions: list[dict[str, Any]], out: Path) -> dict[str, Any]:
+def finalize(
+    store: ShardStore, questions: list[dict[str, Any]], out: Path, checkpoint: dict[str, int]
+) -> dict[str, Any]:
     records: list[dict[str, Any]] = []
     parts: dict[str, list[np.ndarray]] = defaultdict(list)
     for c in range(store.n_chunks(len(questions))):
@@ -253,15 +257,47 @@ def finalize(store: ShardStore, questions: list[dict[str, Any]], out: Path) -> d
     np.savez(out / "features.npz", **arrays)
 
     n = len(records)
+    secs = [r["seconds"] for r in records if r.get("seconds") is not None]  # absent in M1 shards
+    samples = [s for r in records for s in r["samples"]]
     stats = {
         "n_questions": n,
+        "n_expected": len(questions),
         "greedy_ends_with_eos": sum(r["greedy"]["ends_with_eos"] for r in records) / n,
         "greedy_empty": sum(not r["greedy"]["text"] for r in records),
         "subject_found": sum(bool(r["subject_token_idx"]) for r in records) / n,
         "mean_greedy_tokens": float(np.mean([len(r["greedy"]["token_ids"]) for r in records])),
+        "n_samples": len(samples),
+        "samples_ends_with_eos": sum(s["ends_with_eos"] for s in samples) / len(samples) if samples else None,
+        "mean_sample_tokens": float(np.mean([len(s["token_ids"]) for s in samples])) if samples else None,
+        "seconds_per_question": float(np.mean(secs)) if secs else None,
+        "n_timed": len(secs),
+        "checkpoint": checkpoint,
     }
     write_json(out / "summary.json", stats)
     return stats
+
+
+def render(stats: dict[str, Any], cfg: dict[str, Any]) -> str:
+    n = stats["n_questions"]
+    eos = round(stats["greedy_ends_with_eos"] * n)
+    subj = round(stats["subject_found"] * n)
+    spq = stats["seconds_per_question"]
+    ck = stats["checkpoint"]
+    lines = [
+        kv("Questions done", f"{n} / {stats['n_expected']}"),
+        kv("Time per question", f"{spq:.2f} s (n={stats['n_timed']} timed)" if spq else "n/a (shards from older code)"),
+        kv("Mean answer tokens", f"{stats['mean_greedy_tokens']:.1f} greedy"
+           + (f" | {stats['mean_sample_tokens']:.1f} samples" if stats["mean_sample_tokens"] else "")),
+        kv("Finished cleanly (EOS)", f"greedy {pct(eos, n).strip()}"
+           + (f" | samples {100 * stats['samples_ends_with_eos']:.1f}% of {stats['n_samples']}"
+              if stats["n_samples"] else "")),
+        kv("Empty greedy answers", pct(stats["greedy_empty"], n).strip()),
+        kv("Subject tokens found", pct(subj, n).strip()),
+        kv("Checkpoints", f"{ck['total']} / {ck['total']} chunks of {ck['chunk_size']} "
+           f"({ck['generated']} generated now, {ck['imported']} imported, "
+           f"{ck['total'] - ck['generated'] - ck['imported']} already on disk)"),
+    ]
+    return block("generation", cfg, n, lines)
 
 
 def run(cfg: dict[str, Any]) -> None:
@@ -279,8 +315,9 @@ def run(cfg: dict[str, Any]) -> None:
         }
     )
     store = ShardStore(out / "shards", gcfg.get("checkpoint_every", 100), fp)
-    if gcfg.get("resume_dirs"):
-        print(f"[generate] imported {store.import_from(gcfg['resume_dirs'])} shards from resume_dirs")
+    imported = store.import_from(gcfg["resume_dirs"]) if gcfg.get("resume_dirs") else 0
+    if imported:
+        print(f"[generate] imported {imported} shards from resume_dirs")
 
     n_layers = AutoConfig.from_pretrained(mcfg["id"], revision=mcfg.get("revision")).num_hidden_layers
     layers = selected_layers(n_layers, gcfg.get("layer_stride", 4))
@@ -294,7 +331,9 @@ def run(cfg: dict[str, Any]) -> None:
         for c in todo:
             recs, rows = [], []
             for i in tqdm(store.chunk_range(c, len(questions)), desc=f"chunk {c}"):
+                t0 = time.perf_counter()
                 rec, arr = process_question(model, tok, questions[i], gcfg, eos_ids, layers, seed + i)
+                rec["seconds"] = round(time.perf_counter() - t0, 3)
                 recs.append(rec)
                 rows.append(arr)
             store.save_chunk(c, recs, _stack(rows))
@@ -304,6 +343,11 @@ def run(cfg: dict[str, Any]) -> None:
     else:
         print("[generate] all chunks already done; re-merging")
 
-    stats = finalize(store, questions, out)
+    checkpoint = {
+        "total": store.n_chunks(len(questions)), "chunk_size": store.chunk_size,
+        "generated": len(todo), "imported": imported,
+    }
+    stats = finalize(store, questions, out, checkpoint)
     write_meta(out, cfg, "generate", {"fingerprint": fp, "summary": stats})
-    print(f"[generate] done -> {out}  {stats}")
+    print(render(stats, cfg))
+    print(f"[generate] done -> {out}")

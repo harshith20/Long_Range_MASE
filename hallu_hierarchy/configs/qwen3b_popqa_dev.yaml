@@ -27,8 +27,14 @@ generation:
   checkpoint_every: 100
   resume_dirs: []       # e.g. [/kaggle/input/<dataset-with-earlier-shards>]
 
-labeling:
-  correctness:
-    match_mode: contains   # exact | contains
+correctness:                # M1.5, CLAUDE.md §3; runs on saved generations (no GPU)
+  refusal_patterns: configs/refusal_patterns.yaml
+  relaxed_min_words: 2      # relaxed match needs the prediction to be >= 2 words ...
+  relaxed_min_chars: 6      # ... or >= 6 characters
+  ambiguous_single_word: true
+  ambiguous_subjects: []    # extra generic subject titles to flag
+  overrides: review/qwen2.5-3b_popqa_dev200_overrides.csv   # manual decisions (committed); missing = none
+
+# input_run_dir: /kaggle/input/<dataset>   # read saved generation/data outputs from here
 
 stages: [data, generate, correctness]
