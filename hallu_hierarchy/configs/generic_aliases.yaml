@@ -1,0 +1,11 @@
+# Gold aliases that are a single generic word are dropped before matching (CLAUDE.md §3, step 2).
+# Reason: PopQA lists "Church" as an alias of "Catholic Church", so any prediction containing
+# "church" would match. Matched after normalization (lowercase, no punctuation/articles).
+# Every dropped alias is counted in REPORT.md. If all of a question's aliases are generic,
+# none are dropped.
+generic:
+  - church
+  - film
+  - music
+  - movie
+  - series

@@ -1,0 +1,50 @@
+# Full PopQA (14,267 questions): Qwen2.5-3B-Instruct on a Kaggle T4. Checkpoints every 100
+# questions; if the session dies, rerun the same line and it resumes.
+run_name: qwen2.5-3b_popqa_full
+seed: 0
+milestone: full-generation   # shown in REPORT.md
+# output_root: defaults to /kaggle/working/outputs on Kaggle, hallu_hierarchy/outputs locally
+
+model:
+  id: Qwen/Qwen2.5-3B-Instruct
+  revision: null        # pin a commit hash once the setup is final
+  dtype: float16
+  device: cuda
+
+data:
+  dataset: popqa
+  hf_id: akariasai/PopQA
+  hf_split: test
+  n_questions: null     # all questions
+  split_fractions: {train: 0.6, val: 0.2, test: 0.2}
+
+generation:
+  system_prompt: "Answer the question with only the answer, in as few words as possible. Do not explain."
+  max_new_tokens: 32
+  n_samples: 10
+  sample_temperature: 1.0
+  sample_top_p: 1.0     # 1.0 = off
+  sample_top_k: 0       # 0 = off
+  layer_stride: 4       # cache hidden-state indices 0, 4, 8, ... + last
+  checkpoint_every: 100
+  attn_row_layer_fracs: [0.5, 0.75, 0.9]   # layers for full TBG attention rows
+  attn_row_max_len: 128                   # prompt tokens kept per row (NaN-padded)
+  resume_dirs: []       # e.g. [/kaggle/input/<dataset-with-earlier-shards>]
+
+correctness:                # CLAUDE.md §3; runs on saved generations (no GPU)
+  refusal_patterns: configs/refusal_patterns.yaml
+  generic_aliases: configs/generic_aliases.yaml
+  relaxed_min_words: 2      # relaxed match needs the prediction to be >= 2 words ...
+  relaxed_min_chars: 6      # ... or >= 6 characters
+  ambiguous_single_word: true
+  ambiguous_subjects: []    # extra generic subject titles to flag
+  # overrides: default overrides/<dataset>_<model>.csv (e.g. overrides/popqa_qwen2.5-3b.csv)
+  # report checks (soft: outside the range -> WARN)
+  expected_accuracy: [0.10, 0.30]   # PopQA; low accuracy is expected
+  max_abstain_rate: 0.15
+  max_ambiguous_frac: 0.30
+
+# input_run_dir: on Kaggle, attached inputs are searched for a folder named <run_name>;
+# set this (or --input-run-dir) only to point somewhere else.
+
+stages: [data, generation, correctness]

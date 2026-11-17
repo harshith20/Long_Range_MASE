@@ -1,16 +1,12 @@
-"""Review list, manual overrides and flags.
+"""Manual overrides, generic-alias cleaning, flags.
 
-Workflow:
-  1. The stage writes <run>/correctness/review/disagreements.csv (strict != relaxed) and
-     wrong.csv (all wrong answers, for spotting gold noise). Both have empty columns
-     `decision`, `gold_noise`, `ambiguous_subject`, `note`.
-  2. Copy the rows you decide on into the overrides file named in the config
-     (default hallu_hierarchy/review/<run_name>_overrides.csv, committed to git) and fill:
-       decision          correct | wrong | abstain   (blank = keep the automatic label)
-       gold_noise        1 / 0                         (blank = not set)
-       ambiguous_subject 1 / 0                         (blank = keep the heuristic)
-  3. Rerun `--stages correctness`. Outputs are regenerated; overrides are never written
-     into outputs by hand.
+Overrides live in the repo at overrides/<dataset>_<model>.csv with columns
+    qid, label, gold_noise, ambiguous_subject, note
+  label             correct | wrong | abstain    (blank = keep the automatic label)
+  gold_noise        1 / 0                        (blank = 0)
+  ambiguous_subject 1 / 0                        (blank = keep the heuristic)
+The user gives decisions to Claude Code, which writes them here and commits. Nobody edits
+files inside Kaggle.
 """
 
 from __future__ import annotations
@@ -19,17 +15,42 @@ import csv
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from ..data.normalize import normalize_answer
 from .matching import LABELS
 
-REVIEW_COLUMNS = [
-    "qid", "split", "relation", "subject", "question", "pred", "aliases",
-    "match_strict", "match_relaxed", "matched_alias_relaxed", "label_auto", "label",
-    "flag_ambiguous_subject",
-    "decision", "gold_noise", "ambiguous_subject", "note",
-]
+OVERRIDE_COLUMNS = ["qid", "label", "gold_noise", "ambiguous_subject", "note"]
 _TRUE, _FALSE = {"1", "true", "yes", "y"}, {"0", "false", "no", "n"}
 
+
+# ----------------------------------------------------------------------------- aliases
+
+def load_generic_aliases(path: Path | None) -> set[str]:
+    if path is None or not path.exists():
+        return set()
+    with open(path, encoding="utf-8") as f:
+        d = yaml.safe_load(f) or {}
+    return {a for a in (normalize_answer(x) for x in d.get("generic", []) or []) if a}
+
+
+def clean_aliases(aliases: list[str], generic: set[str]) -> tuple[list[str], list[str]]:
+    """Drop single generic words ("church", "film", ...) from the gold aliases.
+
+    PopQA lists "Church" as an alias of "Catholic Church", so any prediction containing
+    "church" would match. If every alias is generic, nothing is dropped (and nothing is
+    returned as dropped), so the question keeps a gold answer.
+    Returns (kept, dropped).
+    """
+    kept, dropped = [], []
+    for a in aliases:
+        (dropped if normalize_answer(a) in generic else kept).append(a)
+    if not kept:
+        return list(aliases), []
+    return kept, dropped
+
+
+# ----------------------------------------------------------------------------- flags
 
 def ambiguous_subject_heuristic(subject: str | None, ccfg: dict[str, Any]) -> bool:
     """First-pass flag: single-word subject titles (Emma, Messiah, Boston, Avatar, ...)
@@ -43,6 +64,8 @@ def ambiguous_subject_heuristic(subject: str | None, ccfg: dict[str, Any]) -> bo
     return bool(ccfg.get("ambiguous_single_word", True)) and len(s.split()) == 1
 
 
+# ----------------------------------------------------------------------------- overrides
+
 def _parse_bool(value: str | None, where: str) -> bool | None:
     v = (value or "").strip().lower()
     if not v:
@@ -55,7 +78,7 @@ def _parse_bool(value: str | None, where: str) -> bool | None:
 
 
 def load_overrides(path: Path | None) -> dict[str, dict[str, Any]]:
-    """qid -> {decision?, gold_noise?, ambiguous_subject?, note?}. Missing file -> {}."""
+    """qid -> {label?, gold_noise?, ambiguous_subject?, note?}. Missing file -> {}."""
     if path is None or not path.exists():
         return {}
     out: dict[str, dict[str, Any]] = {}
@@ -65,32 +88,22 @@ def load_overrides(path: Path | None) -> dict[str, dict[str, Any]]:
             if not qid:
                 continue
             where = f"{path.name}:{i}"
+            if qid in out:
+                raise ValueError(f"{where}: duplicate qid {qid!r}")
             o: dict[str, Any] = {}
-            decision = (row.get("decision") or "").strip().lower()
-            if decision:
-                if decision not in LABELS:
-                    raise ValueError(f"{where}: decision must be one of {LABELS}, got {decision!r}")
-                o["decision"] = decision
+            label = (row.get("label") or "").strip().lower()
+            if label:
+                if label not in LABELS:
+                    raise ValueError(f"{where}: label must be one of {LABELS}, got {label!r}")
+                o["label"] = label
             for key in ("gold_noise", "ambiguous_subject"):
                 b = _parse_bool(row.get(key), where)
                 if b is not None:
                     o[key] = b
             if (row.get("note") or "").strip():
                 o["note"] = row["note"].strip()
-            if qid in out:
-                raise ValueError(f"{where}: duplicate qid {qid!r}")
-            if o:
-                out[qid] = o
+            out[qid] = o
     return out
-
-
-def write_review_csv(path: Path, rows: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=REVIEW_COLUMNS, extrasaction="ignore")
-        w.writeheader()
-        for r in rows:
-            w.writerow({c: r.get(c, "") for c in REVIEW_COLUMNS})
 
 
 def write_csv(path: Path, header: list[str], rows: list[list[Any]]) -> None:

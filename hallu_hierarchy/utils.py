@@ -29,11 +29,27 @@ def load_config(path: str | os.PathLike) -> dict[str, Any]:
     return cfg
 
 
+KAGGLE_WORKING = Path("/kaggle/working")
+KAGGLE_INPUT = Path("/kaggle/input")
+
+
+def on_kaggle() -> bool:
+    return KAGGLE_WORKING.is_dir()
+
+
 def default_output_root() -> Path:
     """/kaggle/working/outputs on Kaggle, else hallu_hierarchy/outputs (gitignored)."""
-    if Path("/kaggle/working").is_dir():
-        return Path("/kaggle/working/outputs")
-    return PKG_DIR / "outputs"
+    return KAGGLE_WORKING / "outputs" if on_kaggle() else PKG_DIR / "outputs"
+
+
+def report_dir(cfg: dict[str, Any]) -> Path:
+    """Where REPORT.md / DASHBOARD.png / REVIEW.csv go: /kaggle/working on Kaggle,
+    else the local (gitignored) outputs folder."""
+    if cfg.get("report_dir"):
+        return Path(cfg["report_dir"])
+    if cfg.get("output_root"):
+        return Path(cfg["output_root"])
+    return KAGGLE_WORKING if on_kaggle() else PKG_DIR / "outputs"
 
 
 def run_dir(cfg: dict[str, Any]) -> Path:
@@ -54,7 +70,19 @@ def input_run_dirs(cfg: dict[str, Any]) -> list[Path]:
         for cand in (base, base / cfg["run_name"], base / "outputs" / cfg["run_name"]):
             if cand.is_dir() and cand not in dirs:
                 dirs.append(cand)
+    elif KAGGLE_INPUT.is_dir():
+        dirs += [d for d in discover_kaggle_inputs(cfg["run_name"]) if d not in dirs]
     return dirs
+
+
+def discover_kaggle_inputs(run_name: str, root: Path = KAGGLE_INPUT, max_depth: int = 6) -> list[Path]:
+    """Folders named `run_name` (holding stage outputs) inside attached Kaggle inputs."""
+    found = []
+    for depth in range(1, max_depth + 1):
+        for cand in sorted(root.glob("/".join(["*"] * (depth - 1) + [run_name]))):
+            if cand.is_dir() and any((cand / s).is_dir() for s in ("generation", "data", "correctness")):
+                found.append(cand)
+    return found
 
 
 def find_upstream(cfg: dict[str, Any], rel: str) -> Path | None:
@@ -101,7 +129,11 @@ def git_info() -> dict[str, Any]:
 
     commit = _git("rev-parse", "HEAD")
     status = _git("status", "--porcelain", "--", ".")
-    return {"commit": commit or "unknown", "dirty": bool(status) if status is not None else None}
+    return {
+        "commit": commit or "unknown",
+        "short": (commit or "unknown")[:7],
+        "dirty": bool(status) if status is not None else None,
+    }
 
 
 def write_json(path: Path, obj: Any) -> None:

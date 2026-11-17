@@ -1,4 +1,4 @@
-"""Stage `generate`: greedy answer + N samples per question, with caching.
+"""Stage `generation`: greedy answer + N samples per question, with caching.
 
 Per question we save:
   * greedy answer text/tokens, per-token entropy and log-prob (raw logits, T=1)
@@ -6,6 +6,10 @@ Per question we save:
   * hidden states of the greedy pass at TBG and SLT for a subset of layers (fp16)
   * logit-lens entropy / target log-prob / target-is-top1 at TBG and SLT for every layer
   * attention mass on subject tokens (mean over heads) for every layer
+  * per head, at the last prompt token (TBG): attention mass on subject tokens for every layer
+    (attn_subj_heads_tbg [L, H]) and the full attention row at a few middle/late layers
+    (attn_row_tbg [len(attn_row_layers), H, attn_row_max_len], NaN-padded). These give the
+    mean- and max-over-heads attention features of M2.
 
 Positions (indices into prompt + greedy answer):
   TBG = last prompt token (state before the first answer token is produced)
@@ -27,7 +31,9 @@ import torch.nn.functional as F
 from tqdm.auto import tqdm
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 
-from ..reporting.console import block, kv, pct
+from ..data.splits import check_no_leakage
+from ..reporting.console import pct
+from ..reporting.plots import histogram
 from ..utils import read_jsonl, run_dir, set_seed, write_json, write_jsonl, write_meta
 from .checkpoint import ShardStore, fingerprint
 from .prompts import encode_prompt
@@ -116,6 +122,30 @@ def subject_attention(
     return {k: mass[:, q].mean(-1).cpu().numpy().astype(np.float32) for k, q in queries.items()}
 
 
+def attention_row_layers(n_layers: int, fracs: list[float]) -> list[int]:
+    """Indices into the attentions tuple (0..n_layers-1) at the given depth fractions."""
+    return sorted({min(n_layers - 1, max(0, round(f * (n_layers - 1)))) for f in fracs})
+
+
+@torch.no_grad()
+def tbg_attention_per_head(
+    attentions: tuple[torch.Tensor, ...], subj_idx: list[int], q_pos: int,
+    row_layers: list[int], max_len: int,
+) -> tuple[dict[str, np.ndarray], bool]:
+    """Per-head attention of the query at `q_pos`. Returns arrays and whether rows were cut."""
+    n_layers, n_heads = len(attentions), attentions[0].shape[1]
+    if subj_idx:
+        heads = torch.stack([a[0, :, q_pos, subj_idx].float().sum(-1) for a in attentions])  # [L, H]
+        heads_np = heads.cpu().numpy().astype(np.float32)
+    else:
+        heads_np = np.full((n_layers, n_heads), np.nan, dtype=np.float32)
+    rows = np.full((len(row_layers), n_heads, max_len), np.nan, dtype=np.float16)
+    k = min(q_pos + 1, max_len)  # causal: keys 0..q_pos
+    for j, layer in enumerate(row_layers):
+        rows[j, :, :k] = attentions[layer][0, :, q_pos, :k].float().cpu().numpy()
+    return {"attn_subj_heads_tbg": heads_np, "attn_row_tbg": rows}, q_pos + 1 > max_len
+
+
 # ----------------------------------------------------------------------------- per question
 
 @torch.no_grad()
@@ -181,7 +211,7 @@ def sample_pass(
 @torch.no_grad()
 def process_question(
     model: Any, tok: Any, q: dict[str, Any], gcfg: dict[str, Any], eos_ids: set[int],
-    layers: list[int], seed: int,
+    layers: list[int], seed: int, row_layers: list[int],
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
     device = model.device
     prompt_ids, subj_idx = encode_prompt(tok, q["question"], q.get("subject"), gcfg.get("system_prompt"))
@@ -212,6 +242,10 @@ def process_question(
     )
     for k, v in attn.items():
         arrays[f"attn_subj_{k}"] = v
+    per_head, row_cut = tbg_attention_per_head(
+        fo.attentions, subj_idx, tbg, row_layers, gcfg.get("attn_row_max_len", 128)
+    )
+    arrays.update(per_head)
     del fo, hs
 
     samples = sample_pass(model, tok, input_ids, gcfg, eos_ids, seed)
@@ -225,6 +259,7 @@ def process_question(
         "prompt_len": P,
         "positions": {"tbg": tbg, "slt": slt},
         "subject_token_idx": subj_idx,
+        "attn_row_truncated": row_cut,
         "greedy": greedy,
         "samples": samples,
     }
@@ -238,8 +273,8 @@ def _stack(rows: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
 
 
 def finalize(
-    store: ShardStore, questions: list[dict[str, Any]], out: Path, checkpoint: dict[str, int]
-) -> dict[str, Any]:
+    store: ShardStore, questions: list[dict[str, Any]], out: Path, checkpoint: dict[str, Any]
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     records: list[dict[str, Any]] = []
     parts: dict[str, list[np.ndarray]] = defaultdict(list)
     for c in range(store.n_chunks(len(questions))):
@@ -270,37 +305,47 @@ def finalize(
         "samples_ends_with_eos": sum(s["ends_with_eos"] for s in samples) / len(samples) if samples else None,
         "mean_sample_tokens": float(np.mean([len(s["token_ids"]) for s in samples])) if samples else None,
         "seconds_per_question": float(np.mean(secs)) if secs else None,
+        "attn_row_truncated": sum(bool(r.get("attn_row_truncated")) for r in records),
         "n_timed": len(secs),
         "checkpoint": checkpoint,
     }
     write_json(out / "summary.json", stats)
-    return stats
+    return stats, records
 
 
-def render(stats: dict[str, Any], cfg: dict[str, Any]) -> str:
+def fill_report(part: Any, stats: dict[str, Any], records: list[dict[str, Any]], leak_ok: bool) -> None:
     n = stats["n_questions"]
+    ck = stats["checkpoint"]
     eos = round(stats["greedy_ends_with_eos"] * n)
     subj = round(stats["subject_found"] * n)
     spq = stats["seconds_per_question"]
-    ck = stats["checkpoint"]
-    lines = [
-        kv("Questions done", f"{n} / {stats['n_expected']}"),
-        kv("Time per question", f"{spq:.2f} s (n={stats['n_timed']} timed)" if spq else "n/a (shards from older code)"),
-        kv("Mean answer tokens", f"{stats['mean_greedy_tokens']:.1f} greedy"
-           + (f" | {stats['mean_sample_tokens']:.1f} samples" if stats["mean_sample_tokens"] else "")),
-        kv("Finished cleanly (EOS)", f"greedy {pct(eos, n).strip()}"
-           + (f" | samples {100 * stats['samples_ends_with_eos']:.1f}% of {stats['n_samples']}"
-              if stats["n_samples"] else "")),
-        kv("Empty greedy answers", pct(stats["greedy_empty"], n).strip()),
-        kv("Subject tokens found", pct(subj, n).strip()),
-        kv("Checkpoints", f"{ck['total']} / {ck['total']} chunks of {ck['chunk_size']} "
-           f"({ck['generated']} generated now, {ck['imported']} imported, "
-           f"{ck['total'] - ck['generated'] - ck['imported']} already on disk)"),
-    ]
-    return block("generation", cfg, n, lines)
+    part.n = n
+    part.summary = stats
+    part.hard(ck["complete"], f"all checkpoints complete ({ck['done']}/{ck['total']} chunks)"
+              if ck["complete"] else f"only {ck['done']} of {ck['total']} checkpoint chunks finished")
+    part.hard(leak_ok, "no subject leakage across splits" if leak_ok else "a subject appears in two splits")
+    part.soft(stats["greedy_empty"] == 0, "no empty predictions" if not stats["greedy_empty"]
+              else f"{stats['greedy_empty']} greedy answers are empty")
+    part.soft(stats["greedy_ends_with_eos"] >= 0.95, f"{100 * stats['greedy_ends_with_eos']:.1f}% of greedy answers "
+              "finished cleanly" + ("" if stats["greedy_ends_with_eos"] >= 0.95 else " (expected ≥ 95%; raise max_new_tokens?)"))
+    part.soft(stats["subject_found"] >= 0.95, f"subject located in the prompt for {100 * stats['subject_found']:.1f}% of questions"
+              + ("" if stats["subject_found"] >= 0.95 else " (expected ≥ 95%; attention features will be NaN for the rest)"))
+
+    t = f"{spq:.2f} s/question" if spq else "time n/a (older shards)"
+    part.key.append(f"questions done {n} / {stats['n_expected']} | {t} | "
+                    f"mean answer tokens {stats['mean_greedy_tokens']:.1f}")
+    part.key.append(f"finished cleanly {pct(eos, n)} | empty {stats['greedy_empty']} | subject found {pct(subj, n)}")
+    part.claude.append(
+        f"n={n}/{stats['n_expected']} s/q={spq if spq is None else round(spq, 3)} "
+        f"tok_greedy={stats['mean_greedy_tokens']:.2f} tok_samples={stats['mean_sample_tokens']} "
+        f"eos_greedy={stats['greedy_ends_with_eos']:.4f} eos_samples={stats['samples_ends_with_eos']} "
+        f"empty={stats['greedy_empty']} subj_found={stats['subject_found']:.4f} "
+        f"attn_rows_cut={stats['attn_row_truncated']} checkpoints={ck}"
+    )
+    part.plots.append(("Greedy answer length", histogram([len(r["greedy"]["token_ids"]) for r in records], "tokens")))
 
 
-def run(cfg: dict[str, Any]) -> None:
+def run(cfg: dict[str, Any], report: Any = None) -> None:
     gcfg, mcfg, seed = cfg["generation"], cfg["model"], cfg["seed"]
     rd = run_dir(cfg)
     out = rd / "generation"
@@ -317,37 +362,51 @@ def run(cfg: dict[str, Any]) -> None:
     store = ShardStore(out / "shards", gcfg.get("checkpoint_every", 100), fp)
     imported = store.import_from(gcfg["resume_dirs"]) if gcfg.get("resume_dirs") else 0
     if imported:
-        print(f"[generate] imported {imported} shards from resume_dirs")
+        print(f"[generation] imported {imported} shards from resume_dirs")
 
     n_layers = AutoConfig.from_pretrained(mcfg["id"], revision=mcfg.get("revision")).num_hidden_layers
     layers = selected_layers(n_layers, gcfg.get("layer_stride", 4))
-    write_json(out / "layers.json", {"hidden_state_indices": layers, "num_hidden_layers": n_layers})
+    row_layers = attention_row_layers(n_layers, gcfg.get("attn_row_layer_fracs", [0.5, 0.75, 0.9]))
+    write_json(out / "layers.json", {
+        "hidden_state_indices": layers, "num_hidden_layers": n_layers,
+        "attn_row_layers": row_layers, "attn_row_max_len": gcfg.get("attn_row_max_len", 128),
+    })
 
     todo = store.missing_chunks(len(questions))
     if todo:
         set_seed(seed)
         model, tok, eos_ids = load_model(mcfg)
-        print(f"[generate] {len(todo)} chunks to do; caching hidden-state indices {layers}")
+        print(f"[generation] {len(todo)} chunks to do; caching hidden-state indices {layers}")
         for c in todo:
             recs, rows = [], []
             for i in tqdm(store.chunk_range(c, len(questions)), desc=f"chunk {c}"):
                 t0 = time.perf_counter()
-                rec, arr = process_question(model, tok, questions[i], gcfg, eos_ids, layers, seed + i)
+                rec, arr = process_question(model, tok, questions[i], gcfg, eos_ids, layers, seed + i, row_layers)
                 rec["seconds"] = round(time.perf_counter() - t0, 3)
                 recs.append(rec)
                 rows.append(arr)
             store.save_chunk(c, recs, _stack(rows))
-            print(f"[generate] saved chunk {c}")
+            print(f"[generation] saved chunk {c}")
         del model
         torch.cuda.empty_cache()
     else:
-        print("[generate] all chunks already done; re-merging")
+        print("[generation] all chunks already done; re-merging")
 
+    total = store.n_chunks(len(questions))
+    missing = store.missing_chunks(len(questions))
     checkpoint = {
-        "total": store.n_chunks(len(questions)), "chunk_size": store.chunk_size,
-        "generated": len(todo), "imported": imported,
+        "total": total, "done": total - len(missing), "complete": not missing,
+        "chunk_size": store.chunk_size, "generated": len(todo), "imported": imported,
     }
-    stats = finalize(store, questions, out, checkpoint)
-    write_meta(out, cfg, "generate", {"fingerprint": fp, "summary": stats})
-    print(render(stats, cfg))
-    print(f"[generate] done -> {out}")
+    if missing:
+        raise RuntimeError(f"checkpoint chunks {missing} are missing after generation")
+    stats, records = finalize(store, questions, out, checkpoint)
+    write_meta(out, cfg, "generation", {"fingerprint": fp, "summary": stats})
+    try:
+        check_no_leakage(questions)
+        leak_ok = True
+    except AssertionError:
+        leak_ok = False
+    if report is not None:
+        fill_report(report, stats, records, leak_ok)
+    print(f"[generation] done -> {out}")

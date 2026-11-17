@@ -1,0 +1,4 @@
+qid,label,gold_noise,ambiguous_subject,note
+popqa-1919197,correct,0,0,"Avatar → ""Science fiction""; short form of gold, gold refers to the film"
+popqa-1823075,wrong,1,0,"Atlanta → ""Georgia"" is right in reality; PopQA gold ""Fulton County"" is wrong. Excluded"
+popqa-384830,correct,0,0,"Edmund A. Walsh → ""Catholic""; short form of ""Catholic Church"""
