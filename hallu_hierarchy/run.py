@@ -20,6 +20,7 @@ from .utils import load_config, run_dir
 STAGES = {
     "data": "hallu_hierarchy.data.prepare",
     "generation": "hallu_hierarchy.generation.generate",
+    "subject_states": "hallu_hierarchy.generation.subject_states",
     "correctness": "hallu_hierarchy.correctness.stage",
 }
 ALIASES = {"generate": "generation"}

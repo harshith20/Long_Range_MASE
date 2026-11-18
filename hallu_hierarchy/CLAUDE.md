@@ -21,9 +21,13 @@ This folder is a self-contained research project inside a larger repo. Work only
   correct 2,128 (14.9%), partial 0.6%. Only 5/16 relations had ≥ 30 correct test examples with one test split,
   all closed-set → **evaluation switched to 5-fold CV grouped by subject** (§3 Metrics). Popularity is U-shaped
   (lowest decile 20% vs 7–11% mid) — possible lucky guesses in closed-set relations.
-- **Next (in order):** correctness rerun to write `fold` into the labels (GPU off) + open-set label audit (50 rows)
-  → subject-state stage (H4, GPU) → M2 on a 200-question subset → M2 on all → TriviaQA generation
-  + EntityQuestions pilot → M3.
+- **M1.6 complete** (E06 audit, E07 labels, commit 6de0783): correct 2,128 (14.9%) | wrong 11,114 | abstain 939
+  (6.6%, incl. "not specified") | partial 86. 5-fold subject-grouped folds in the labels; 13/16 relations usable
+  within-relation (7/9 open-set). Labels are final for M2/M3. Note: the labels with folds exist only in the
+  correctness output of kernel v6 — later runs either rerun `correctness` first (10 s) or attach that output.
+- **Subject-state stage** code written (`generation/subject_states.py`), not yet run.
+- **Next (in order):** subject-state run (H4, GPU) → M2 on a 200-question subset → M2 on all → TriviaQA
+  generation + EntityQuestions pilot → M3.
 
 ## 1. What this project is
 
