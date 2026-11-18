@@ -50,11 +50,31 @@ def clean_aliases(aliases: list[str], generic: set[str]) -> tuple[list[str], lis
     return kept, dropped
 
 
+# ----------------------------------------------------------------------------- relation groups
+
+def load_relation_groups(path: Path | None) -> tuple[dict[str, str], set[str]]:
+    """relation -> 'open' | 'closed', plus the set of borderline relations (§9)."""
+    if path is None or not path.exists():
+        return {}, set()
+    with open(path, encoding="utf-8") as f:
+        d = yaml.safe_load(f) or {}
+    groups: dict[str, str] = {}
+    for g in ("closed", "open"):
+        for rel in d.get(g, []) or []:
+            key = str(rel).strip().lower()
+            if key in groups:
+                raise ValueError(f"relation {rel!r} is in both groups in {path.name}")
+            groups[key] = g
+    borderline = {str(r).strip().lower() for r in d.get("borderline", []) or []}
+    return groups, borderline
+
+
 # ----------------------------------------------------------------------------- flags
 
 def ambiguous_subject_heuristic(subject: str | None, ccfg: dict[str, Any]) -> bool:
     """First-pass flag: single-word subject titles (Emma, Messiah, Boston, Avatar, ...)
-    or subjects listed in `ambiguous_subjects`. A Wikidata homonym check may replace this (M3)."""
+    or subjects listed in `ambiguous_subjects`. A column only: it excludes nothing by itself
+    (rule 9). The real check runs in M3 on AH-labelled rows."""
     s = normalize_answer(subject or "")
     if not s:
         return False

@@ -4,3 +4,9 @@ checkpoints/
 *.npz
 *.pt
 *.tmp
+# Kaggle CLI (CLAUDE.md §12): never commit credentials; local CLI venv and push build dirs
+kaggle.json
+.kaggle/
+.venv/
+kaggle/.build/
+reports/_downloads/

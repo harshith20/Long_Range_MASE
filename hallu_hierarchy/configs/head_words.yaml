@@ -1,0 +1,14 @@
+# Trailing generic head words stripped from gold aliases (CLAUDE.md §3 Correctness, step 5).
+# A strict match against the stripped copy counts as match_strict:
+#   "Comedy" vs gold "comedy film" -> correct;  "Fiction" vs "science fiction film" -> partial.
+# Stripping repeats ("drama tv series" -> "drama") and never leaves an empty alias.
+head_words:
+  - film
+  - movie
+  - series
+  - tv series
+  - video game
+  - game
+  - genre
+  - music
+  - literature

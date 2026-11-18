@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(kaggle kernels status *)",
+      "Bash(kaggle kernels list *)",
+      "Bash(hallu_hierarchy/.venv/bin/kaggle kernels status *)",
+      "Bash(hallu_hierarchy/.venv/bin/kaggle kernels list *)",
+      "Bash(.venv/bin/kaggle kernels status *)",
+      "Bash(.venv/bin/kaggle kernels list *)"
+    ],
+    "ask": [
+      "Bash(*kaggle_run.sh*)",
+      "Bash(*kaggle kernels push*)",
+      "Bash(*kaggle kernels output*)",
+      "Bash(git push *)"
+    ],
+    "deny": [
+      "Bash(*kaggle* delete*)",
+      "Bash(*kaggle datasets create*)",
+      "Bash(*kaggle datasets version*)",
+      "Read(~/.kaggle/**)",
+      "Edit(~/.kaggle/**)",
+      "Read(~/.config/kaggle/**)",
+      "Edit(~/.config/kaggle/**)",
+      "Bash(*.kaggle/*)",
+      "Bash(*~/.kaggle*)",
+      "Bash(*.config/kaggle*)",
+      "Bash(*kaggle.json*)",
+      "Bash(*KAGGLE_API_TOKEN*)",
+      "Bash(*KAGGLE_KEY*)",
+      "Bash(rm -rf *)",
+      "Bash(rm -fr *)",
+      "Bash(rm -r -f *)"
+    ]
+  }
+}

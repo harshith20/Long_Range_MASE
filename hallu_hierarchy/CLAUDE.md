@@ -5,20 +5,15 @@ This folder is a self-contained research project inside a larger repo. Work only
 
 ## 0. Current status (Claude Code updates this at the end of every milestone)
 
-- **M1 done:** Qwen2.5-3B-Instruct on 200 PopQA questions ran end to end on Kaggle in ~40 s.
-  One question per subject (no leakage), no empty predictions, ~4 tokens per answer. Accuracy 17% (strict).
-- **M1.5 done** (commit 2ab927f, Kaggle, CPU, ~1 s): correct 36 (18.0%) | wrong 151 (75.5%) | abstain 13 (6.5%).
-  Strict 34 → relaxed 37 → final 36. Changes vs M1: 13 wrong → abstain, 2 wrong → correct (overrides).
-  Generic aliases dropped: church ×2 (no label changed). 3 overrides applied, 0 review rows left, gold_noise 1.
-  STATUS ⚠️ WARN only because `ambiguous_subject` flags 99/200 (49.5%) → 78 wrong rows excluded from AH/UH.
-  Decide at M3 (§9) whether to narrow the heuristic (e.g. creative-work relations only); it affects nothing before M3.
-  Creative-work relations are near 0% accuracy (screenwriter 3%, producer 4%, director 0%, composer 0%);
-  capital 64%, sport 40%, country 38%. Sample-level: 14.1% correct, 3.4% abstain.
-  Code: alias cleaning, `overrides/popqa_qwen2.5-3b.csv`, `REVIEW.csv`, `REPORT.md` + checks, `DASHBOARD.png`,
-  fixed `kaggle/run.ipynb`, auto-discovery of saved runs in `/kaggle/input`. Ambiguous rows excluded only when wrong.
-  Generation now also saves per-head TBG attention for M2 (takes effect from the full run).
-- **Next:** full PopQA generation (`configs/qwen3b_popqa_full.yaml`, `--stages data,generation,correctness`, T4)
-  → develop M2 on a 200-question subset.
+- **M1 / M1.5 done.** Correctness pipeline, report and Kaggle notebook work.
+- **Full PopQA generation done** (commit 2ab927f): 14,267 questions, 143/143 checkpoints, 0.74 s/question
+  (~2.9 h), no empty answers, subject located in 100% of prompts. Outputs saved as a Kaggle Dataset.
+  - Strict accuracy 13.6% (1,942 correct), wrong 80.8%, abstain 5.6%. Consistent across splits.
+  - Old ambiguity heuristic flagged 48.8% and set aside ~5,800 rows → replaced in §3 (flag no longer excludes).
+  - 261 strict/relaxed disagreements → now resolved by rule (§3), no manual review.
+  - **Relation confounder confirmed:** ~74% of correct answers come from closed-set relations, which are ~31% of questions.
+- **Next (in order):** set up Kaggle CLI automation (§12) → M1.6 correctness rerun (first CLI run, GPU off)
+  → subject-state stage (H4) → M2 on a 200-question subset → M2 on all.
 
 ## 1. What this project is
 
@@ -31,125 +26,159 @@ Thesis work: detect LLM hallucinations with **semantic entropy probes (SEPs)** a
 | **FA** — factual association | Model's answer matches the gold answer |
 | **AH** — associated hallucination | Wrong, but the wrong answer is strongly linked to the subject (e.g. "Where was Einstein born?" → "Munich") |
 | **UH** — unassociated hallucination | Wrong, and the answer has little or no link to the subject (→ "Lisbon") |
-| **abstain** | Refusal ("Not enough information", "Unknown", …). Not a hallucination. Excluded from FA/AH/UH training, always counted in reports |
+| **abstain** | Refusal ("Not enough information", "Unknown", …). Not a hallucination |
+| **partial** | Correct but less specific than gold, or too vague to judge ("Singer" vs "singer-songwriter", "Fiction" vs "science fiction film"). Not a hallucination |
+
+`abstain` and `partial` are excluded from FA/AH/UH training and always counted in reports.
 
 ### Hypotheses
-- **H1:** The entropy hierarchy separates UH from FA well.
-- **H2:** Entropy alone largely fails on AH vs FA (AH is confident and consistent across samples → low entropy).
-- **H3:** Adding non-confidence signals (layer-wise dynamics, attention to subject tokens) partly recovers AH vs FA.
 
-A clearly documented negative result on H2 is acceptable and expected. Do not tune things to hide it.
+| ID | Priority | Claim | Test |
+|---|---|---|---|
+| **H1** | Core | The entropy hierarchy separates UH from FA | AUROC UH vs FA vs all baselines |
+| **H1b** | Core | Single-pass probes keep most of the performance of full sampling (the edge claim) | Probe-based vs full-sampling classifier: AUROC and inference time side by side |
+| **H2** | Core | Entropy alone fails on AH vs FA (AH is confident and consistent) | AH vs FA AUROC with entropy features only; expect ≈ 0.5 |
+| **H3** | Core | Non-confidence internal signals ($\ell^*$, layer-wise entropy, attention to subject) partly recover AH vs FA | AH vs FA AUROC: entropy only vs + layer-wise + attention |
+| **H4** | Recommended | Subject familiarity (probe on subject-token state) separates UH but not AH: AH = familiar subject + unknown fact | Familiarity probe predicting `s_pop`; compare its scores across FA / AH / UH |
+| **H5** | Core | Detection depends on relation type; pooled AUROC is inflated by it | Within-relation vs pooled AUROC; open vs closed groups; leave-one-relation-out |
+| **H6** | Optional | AH answers change more under paraphrasing than FA answers | 3 paraphrases per question; answer agreement per class (analysis only, not an edge feature) |
+| **H7** | Optional | Many errors on ambiguous subjects are not hallucinations | Regenerate flagged subset with full Wikipedia titles; compare accuracy |
+| **H8** | Recommended | The detector transfers across datasets | Train PopQA → test TriviaQA, and the reverse |
+
+Thesis story: does it work (H1, H1b) → where it fails (H2) → can the failure be fixed (H3) →
+why it fails (H4, H6) → are the results trustworthy (H5, H7, H8).
+
+A clearly documented negative result on H2 (or H3) is acceptable. Do not tune things to hide it.
 
 ## 2. Non-negotiable rules
 
 1. **Labels never become features.** FA/AH/UH come from gold answers + co-occurrence. Semantic entropy is a feature, never a label.
 2. **Split by subject entity, not randomly.** The same subject must never appear in both train and test.
-3. **Inference must stay cheap (edge setting).** Sampling + NLI is allowed only to *create training targets* and for baselines. At inference time, only single-pass signals: probe outputs, greedy-pass token entropy, layer-wise features, attention features, classifier.
+3. **Inference must stay cheap (edge setting).** Sampling + NLI is allowed only to *create training targets* and for baselines. At inference time, only single-pass signals: probe outputs, greedy-pass token entropy, layer-wise features, attention features, subject-familiarity probe, classifier.
 4. **Entropy levels are correlated, not independent.** Report the correlation matrix and VIF between them.
 5. **Labels are per model.** Never share labels across models.
 6. **Never commit outputs.** Hidden states and generations go to `/kaggle/working/outputs/` (or `outputs/` locally, gitignored).
 7. **Never judge correctness by embedding similarity.** "Ulm" and "Munich" are close in embedding space, so it would mark associated hallucinations as correct.
-8. **Relaxed matching never auto-promotes wrong → correct.** It only flags rows for review (§3).
-9. **Flagged rows (`ambiguous_subject`, `gold_noise`) are excluded from AH/UH training** and counted in every report.
-10. **The dataset name is never a feature** (it is unknown at deployment).
+8. **Relaxed matching never auto-promotes wrong → correct.** Rows that match only under relaxed matching become `partial` (§3).
+9. **`gold_noise` and `partial` rows are excluded from FA/AH/UH training.** The `ambiguous_subject` flag does **not** exclude anything by itself; it is a column used for the M3 check and for sensitivity analysis.
+10. **The dataset name and relation type are never classifier features.** Relation type is used only for analysis (H5).
+11. **Pooled AUROC is never reported alone.** Always next to within-relation AUROC and open/closed group results.
 
 ## 3. Pipeline
 
 ```
-QA data → generation (greedy + N samples, cache hidden states + attention)
-        ├→ correctness: correct / wrong / abstain (+ flags, + overrides)
-        │     └→ wrong only: AH / UH via co-occurrence
+QA data → generation (greedy + N samples, cache hidden states + attention)   [done for PopQA]
+        → subject-state stage (prompt-only forward pass, subject-token hidden states)   [H4]
+        ├→ correctness: correct / wrong / abstain / partial (+ flags, + overrides)
+        │     └→ wrong only: AH / UH via co-occurrence (+ ambiguity check on AH rows)
         └→ entropy hierarchy: token, sequence, semantic, layer-wise, attention
-              → probes on hidden states (predict each entropy level from 1 pass)
+              → probes on hidden states (entropy levels + subject familiarity)
                     → boundary classifier (features → FA / AH / UH)
-                          → evaluation vs baselines, per dataset, per relation
+                          → evaluation vs baselines; per dataset, per relation, open/closed
 ```
 
-### Generation
+### Generation (done for PopQA)
 - Short-form QA prompt, answer in a few words, using each model's chat template.
 - 1 greedy answer (temperature 0) + N = 10 samples (temperature 1.0), max ~32 new tokens.
-- Cache hidden states for the **greedy** pass at two positions:
-  - **TBG**: last token of the prompt, before generation
-  - **SLT**: second-last token of the generated answer
-- Cache a subset of layers (every 4th + last), stored as fp16.
-- Save per-token entropy of the greedy answer and log-probs of all samples.
-- Save the attention row of the last prompt token at selected middle/late layers (all heads), plus the subject's token positions in the prompt (via tokenizer offsets).
+- Hidden states for the **greedy** pass at **TBG** (last prompt token) and **SLT** (second-last answer token), every 4th layer + last, fp16.
+- Per-token entropy of the greedy answer; log-probs of all samples.
+- Attention row of the last prompt token at selected middle/late layers (all heads); subject token positions via tokenizer offsets.
 
-### Correctness
-Runs on saved generations; no GPU needed. Applied to the greedy answer **and** to every sample.
+### Subject-state stage (`--stages subject_states`, for H4)
+- One forward pass over the **prompt only** (no generation), reusing the same prompt and tokenizer.
+- Cache the hidden state at the **subject's last token**, same layers as above, fp16.
+- Much cheaper than generation. Checkpoint every 100 questions like generation.
+- Must produce identical prompts/token positions to the generation stage (assert this on a sample).
+
+### Correctness (M1.6 = rerun with the changes below)
+Runs on saved generations; no GPU. Applied to the greedy answer **and** to every sample.
 
 1. **Normalize** both strings: lowercase, strip punctuation and articles (a/an/the).
-2. **Alias cleaning:** drop gold aliases that are a single generic word (e.g. "church", "film", "music", "movie", "series").
-   The list lives in `configs/generic_aliases.yaml`. Log every dropped alias in the report.
-   Reason: PopQA lists "Church" as an alias of "Catholic Church", so any prediction containing "church" would match.
-3. **Abstain:** if the answer matches the refusal pattern list → `abstain`. Seed patterns from M1:
-   "not enough information", "not applicable", "unknown", "unnamed", "none", "nonegiven",
-   "is not a", "various". List lives in `configs/refusal_patterns.yaml`; log every match.
+2. **Alias cleaning:** drop single generic-word aliases (`configs/generic_aliases.yaml`, e.g. "church", "film", "music", "movie", "series"). Log every dropped alias.
+3. **Abstain:** refusal pattern list in `configs/refusal_patterns.yaml`. Seed: "not enough information", "not applicable", "unknown", "unnamed", "none", "nonegiven", "none given", "is not", "various".
+   **Exception:** "none" is *not* a refusal for the `religion` relation (it can mean no religion). Patterns support per-relation exemptions. Log every match.
 4. **`match_strict`:** a normalized gold alias appears in the prediction as a whole-word span.
-5. **`match_relaxed`:** also true when the prediction is a whole-word span of an alias, with
-   prediction length ≥ 2 words or ≥ 6 characters (so "Drama" does not match "legal drama").
-6. **`label_auto`** = `correct` if `match_strict`, else `wrong` (unless abstain). **Relaxed never changes it.**
-7. **Overrides:** manual decisions live in the repo at `overrides/<dataset>_<model>.csv`
-   (columns: `qid, label, gold_noise, ambiguous_subject, note`). Final `label` = override if present, else `label_auto`.
-   The user gives decisions to Claude Code in VS Code; Claude Code writes them to this file and commits.
-   Nobody edits files inside Kaggle.
-8. **Review rows:** rows where strict and relaxed disagree, and not yet in overrides, are printed in the report
-   (up to 20) and written to `/kaggle/working/REVIEW.csv`. At scale, an NLI or LLM judge replaces manual review for these rows only.
-9. **Flags:**
-   - `ambiguous_subject`: heuristic first pass (single-word or generic subject titles, e.g. *Emma*, *Messiah*, *Boston*, *Avatar*, *Pygmalion*). Cleared by override when the answer matches gold anyway. Later: Wikidata check of whether the model's answer is true for another entity with the same name.
-   - `gold_noise`: the gold answer itself is wrong. Set by override.
-10. **Initial overrides** (`overrides/popqa_qwen2.5-3b.csv`):
+5. **Head-word stripping:** also build a stripped copy of each alias with trailing generic head words removed
+   (`film`, `movie`, `series`, `tv series`, `video game`, `game`, `genre`, `music`, `literature`; list in config).
+   A strict match against a stripped alias counts as `match_strict`. Example: "Comedy" vs "comedy film" → correct.
+6. **`match_relaxed`:** prediction is a whole-word span of an alias, with length ≥ 2 words or ≥ 6 characters.
+7. **`label_auto`:**
+   - `abstain` if a refusal pattern matches
+   - `correct` if `match_strict`
+   - `partial` if only `match_relaxed` (e.g. "Singer" vs "singer-songwriter", "New York City" vs "Queens", "Fiction" vs "science fiction film")
+   - `wrong` otherwise
+8. **Overrides:** `overrides/<dataset>_<model>.csv` (`qid, label, gold_noise, ambiguous_subject, note`). Final `label` = override if present, else `label_auto`. Claude Code writes decisions the user gives and commits them. Nobody edits files inside Kaggle. Existing overrides:
 
     | qid | label | gold_noise | ambiguous_subject | note |
     |---|---|---|---|---|
-    | popqa-1919197 | correct | 0 | 0 | Avatar → "Science fiction"; short form of gold, gold refers to the film |
-    | popqa-1823075 | wrong | 1 | 0 | Atlanta → "Georgia" is right in reality; PopQA gold "Fulton County" is wrong. Excluded |
+    | popqa-1919197 | correct | 0 | 0 | Avatar → "Science fiction"; short form of gold |
+    | popqa-1823075 | wrong | 1 | 0 | Atlanta → "Georgia" is right; PopQA gold "Fulton County" is wrong. Excluded |
     | popqa-384830 | correct | 0 | 0 | Edmund A. Walsh → "Catholic"; short form of "Catholic Church" |
 
-11. Report what changed versus the previous run (counts moved between labels).
+9. **No manual review list by default.** `partial` replaces it. The report lists counts of `partial` per relation and 10 random examples.
+10. **`ambiguous_subject` flag:** keep the single-word/generic-title heuristic as a column only. It no longer excludes rows. The real check happens in M3 on AH-labelled rows.
+11. **`gold_noise`:** set by override only.
+12. Report changes vs the previous run (counts moved between labels).
 
-### AH vs UH labeling (wrong answers only, unflagged rows only)
+### Relation groups (for H5 and all reporting)
+Defined in `configs/relation_groups.yaml`:
+- **closed-set** (few plausible answers, guessable): country, capital, capital of, sport, genre, religion, color
+- **open-set** (person or entity names, recall needed): director, screenwriter, producer, author, composer, father, mother, place of birth, occupation
+
+### AH vs UH labeling (M3; wrong answers only, excluding `gold_noise` and `partial`)
 - Co-occurrence of subject and the model's wrong answer. High → AH, low → UH.
   - OLMo: counts in OLMo's open pretraining corpus via infini-gram (check the index matches the model's training data version).
   - Qwen: Wikipedia proxy (answer appears on the subject's page / count of pages mentioning both).
 - The cutoff is a parameter. Report results for 2–3 cutoffs.
+- **Ambiguity check on AH rows only:** does a Wikipedia disambiguation page exist for the subject, or is the model's answer true for another entity with the same name? If so → `ambiguous_confirmed`, excluded from AH. Report AH counts before and after.
 - Manual check of ~100 labels; report agreement.
 - **Proxy validation:** on OLMo, label with both corpus counts and the Wikipedia proxy; report agreement.
+- Sensitivity analysis: all main results with and without rows carrying the heuristic `ambiguous_subject` flag.
 
-### Entropy hierarchy (features)
+### Entropy hierarchy (features, M2)
 - **Token:** mean and max per-token entropy of the greedy answer. Mixes lexical, syntactic and factual uncertainty.
 - **Sequence:** mean length-normalized NLL across the N samples. Whole-answer uncertainty; still inflated by paraphrases.
-- **Semantic:** cluster the N samples by bidirectional entailment (DeBERTa-large-MNLI), entropy over cluster frequencies. Meaning-level uncertainty only. Abstaining samples form **their own cluster**. Also record `abstain_frac` among samples (training-time only).
-- **Layer-wise (logit lens):** at the **last prompt token**, apply the final layer norm and unembedding to each cached layer's hidden state: $p^{(\ell)} = \text{softmax}(W_U \cdot \text{LN}(h^{(\ell)}))$. Record entropy at middle and late layers (ignore early layers) and $\ell^*$ = first layer where the final answer's first token becomes top-1.
-- **Attention to subject:** with $q$ = last prompt token and $S$ = subject token positions,
-  $a^{(\ell,h)} = \sum_{j \in S} A^{(\ell,h)}_{q,j}$. Use both the **mean** and the **max** over heads, at 3 middle/late layers.
+- **Semantic:** cluster the N samples by bidirectional entailment (DeBERTa-large-MNLI), entropy over cluster frequencies. Meaning-level only. Abstaining samples form **their own cluster**. Also record `abstain_frac` among samples (training-time only).
+- **Layer-wise (logit lens):** at the **last prompt token**, $p^{(\ell)} = \text{softmax}(W_U \cdot \text{LN}(h^{(\ell)}))$ for each cached layer. Record entropy at middle and late layers (ignore early layers) and $\ell^*$ = first layer where the final answer's first token becomes top-1.
+- **Attention to subject:** $q$ = last prompt token, $S$ = subject token positions, $a^{(\ell,h)} = \sum_{j \in S} A^{(\ell,h)}_{q,j}$. Mean and max over heads, at 3 middle/late layers.
 - **Combination features:**
-  - Logistic regression: **no difference features** (it learns linear combinations itself). Use the ratio $H_{\text{sem}} / (H_{\text{tok}} + \epsilon)$.
+  - Logistic regression: **no difference features**. Use the ratio $H_{\text{sem}} / (H_{\text{tok}} + \epsilon)$.
   - Gradient boosting: differences of z-scored levels are allowed.
+- NLI clustering is the slow part: checkpoint every 100 questions and resume.
 
-### Probes
-- Logistic regression probes on cached hidden states, one per entropy level, as in the SEP setup (binarize the target entropy at a training-set split point; this threshold only creates probe targets).
-- Report probe AUROC per layer and per position (TBG vs SLT).
+### Probes (M4)
+- Logistic regression probes, one per entropy level, as in the SEP setup (binarize the target entropy at a training-set split point; this threshold only creates probe targets). Per layer and per position (TBG vs SLT).
+- **Subject-familiarity probe (H4):** on subject-token states, predicting high vs low `s_pop` (split at the training median). Per layer.
+- Probes stay linear (high-dimensional input, limited data; linear readability is part of the claim).
 
-### Classifier
+### Classifier (M5)
 - **Two-stage:** (1) correct vs hallucinated, (2) AH vs UH. Plus a flat 3-class version.
-- Logistic regression first (interpretable weights), then gradient boosting.
-- **Class imbalance:** `class_weight="balanced"` (or equivalent) in every classifier and probe.
+- Logistic regression first, then gradient boosting. Optional explicit interaction terms (e.g. $H_{\text{sem}} \times$ open-set) for logistic regression in the H5 analysis only.
+- `class_weight="balanced"` (or equivalent) everywhere.
 - Inference feature vector uses probe outputs in place of the sampled $H_{\text{sem}}$, $H_{\text{seq}}$.
+- **Feature-set ablations** for H2/H3: entropy only → + layer-wise → + attention → + subject familiarity.
+- **Inference cost (H1b):** log per-question time for the single-pass detector vs full sampling + NLI.
 
 ### Baselines (required)
 - Semantic entropy (full sampling), SEP alone, token entropy alone
 - **Direct correctness probe** (linear probe predicting correct/wrong from hidden states). If the hierarchy does not beat this, say so.
+- **Relation-only baseline** (H5): a classifier that sees only the relation type. Anything near its score is detecting question type, not hallucination.
 - The previous single-threshold entropy-hierarchy method from earlier thesis work
 
 ### Metrics
 - AUROC and AUPRC per class (one-vs-rest) and per stage; ECE.
-- **Bootstrap 95% confidence intervals** on every AUROC/AUPRC (1,000 resamples, resampling by subject).
-- Per-dataset, per-relation, pooled, and cross-dataset tables.
+- **Bootstrap 95% CIs** on every AUROC/AUPRC (1,000 resamples, resampling by subject).
+- **Primary tables:** within-relation AUROC (macro average over relations with ≥ 30 test examples per class), open-set vs closed-set results, pooled AUROC alongside.
+- Leave-one-relation-out results.
+- Per-dataset, pooled and cross-dataset (H8) tables.
+
+### Optional stages
+- **H6 paraphrase stage** (`--stages paraphrase`): 3 paraphrase templates per relation (in config), greedy answer only; answer agreement per class. Analysis only.
+- **H7 disambiguation stage** (`--stages disambig`): regenerate greedy answers for flagged subjects with the full Wikipedia title in the question; compare accuracy.
 
 ## 4. Models and datasets (Kaggle free tier: one T4, 16 GB)
 
-Verify the exact Hugging Face IDs before use.
+Verify exact Hugging Face IDs before use.
 
 | Role | Model |
 |---|---|
@@ -159,44 +188,42 @@ Verify the exact Hugging Face IDs before use.
 
 No 7B models: on a T4 they need 4-bit quantization, which alters the hidden states being probed.
 
-| Dataset | Why |
-|---|---|
-| PopQA | Long-tail entities; popularity score `s_pop`; relation type `prop`. Low accuracy (~17%) is expected, not a bug |
-| TriviaQA (rc.nocontext) | Mostly well-known topics; more correct answers; expect more AH |
-| NQ-Open | Real search queries, a realistic mix |
+| Order | Dataset | Role |
+|---|---|---|
+| 1 | **PopQA** (all 14,267) | Long-tail entities, template questions; UH common; has `s_pop`, relation `prop`, Wikipedia titles. Done |
+| 2 | **TriviaQA** (rc.nocontext, validation) | Human-written, specific, rarely ambiguous; more correct answers incl. people; AH expected more often. Run **before OLMo** |
+| 3 | NQ-Open | Optional realism check; a known large share of its questions are ambiguous |
 
-**Scale:**
-- **Use all of PopQA (14,267 questions).** Generation is fast (~40 s per 200). Expect ~2,400 correct answers.
-- The slow stage is M2 (NLI clustering over 10 samples per question) — must checkpoint and resume.
+**TriviaQA has no subject field.** Subject span is needed for attention features, H4 and co-occurrence.
+Default: use the question's linked entity titles from TriviaQA's entity pages and locate them in the question text (fuzzy match).
+Questions where no subject can be located get `subject_found = False`, are excluded from subject-dependent features and analyses, and are counted in the report.
 
-**Pooling and reporting:**
-- All rows carry a `dataset` column. Classifiers are trained per dataset **and** pooled.
-- Always report per dataset; never report only pooled numbers.
-- **Cross-dataset transfer:** train on PopQA, test on TriviaQA and NQ-Open (and vice versa).
-- Report accuracy and label counts **per relation type**; relations dominated by ambiguity or gold noise may be dropped, and any drop is documented.
+**Pooling and reporting:** all rows carry a `dataset` column. Classifiers are trained per dataset **and** pooled.
+Always report per dataset; never only pooled numbers. Cross-dataset transfer for H8.
 
 ## 5. Kaggle workflow
 
-The user runs with **Save & Run All (Commit)**, so results are read from the **Logs** and **Output** tabs, not from interactive cells.
+Runs are started from the user's machine with the **Kaggle CLI**, by Claude Code, through the guarded
+script `scripts/kaggle_run.sh` (§12). The browser (Save & Run All) remains a fallback and uses the same notebook.
+Results are read from `REPORT.md`, downloaded into `reports/`.
 
-**Fixed notebook** `kaggle/run.ipynb` in the repo, 4 cells, identical every run:
-1. **Setup:** clone the repo (token from Kaggle Secrets), install requirements, HF token from Kaggle Secrets.
+**Fixed notebook** `kaggle/run.ipynb`, 4 cells, identical every run:
+1. **Setup:** clone the repo (token from Kaggle Secrets), install requirements, HF token from Kaggle Secrets, attach previous outputs Dataset.
 2. **Run:** the only line the user edits — `python -m hallu_hierarchy.run --config configs/<file>.yaml --stages <list>`.
-3. **Report:** print `REPORT.md` (so it is the last text in the log) and display `DASHBOARD.png`.
+3. **Report:** print `REPORT.md` (last text in the log) and display `DASHBOARD.png`.
 4. **Save:** outputs saved for use as a Kaggle Dataset by later stages.
 
 **`/kaggle/working/` contains only:**
 
 | File | Purpose |
 |---|---|
-| `REPORT.md` | The report (§7). The only file the user needs to read or send |
-| `DASHBOARD.png` | All key plots in one image. Optional to check |
+| `REPORT.md` | The report (§7). The only file the user reads or sends |
+| `DASHBOARD.png` | Key plots in one image. Optional |
 | `REVIEW.csv` | Only when the report says action is needed |
-| `outputs/` | Everything else. The user never needs to open it |
+| `outputs/` | Everything else. The user never opens it |
 
-Other rules:
-- `--stages` lets any stage rerun alone from saved outputs (e.g. `--stages correctness`).
-- Generation and M2 **checkpoint every 100 questions** and **resume** from the last checkpoint.
+- `--stages` reruns any stage alone from saved outputs.
+- Generation, subject-state and entropy stages checkpoint every 100 questions and resume.
 - Every run writes `outputs/<run>/meta.json`: git commit hash, model ID, dataset, seed, full config, timestamp.
 
 ## 6. Layout
@@ -204,93 +231,73 @@ Other rules:
 ```
 hallu_hierarchy/
   CLAUDE.md
-  kaggle/run.ipynb   # fixed 4-cell notebook
-  configs/           # one yaml per model × dataset; refusal_patterns.yaml; generic_aliases.yaml
-  overrides/         # manual label decisions, committed (§3)
-  data/              # loaders, alias handling, subject-based splits
-  generation/        # greedy + samples, hidden-state / attention caching, checkpointing
-  correctness/       # strict/relaxed matching, alias cleaning, abstain, flags, overrides
-  labeling/          # co-occurrence, AH/UH assignment
+  kaggle/run.ipynb   # + kernel-metadata.json
+  scripts/kaggle_run.sh   # guarded CLI runner (§12)
+  reports/           # committed REPORT.md history
+  configs/           # model × dataset yamls; refusal_patterns, generic_aliases, head_words, relation_groups, paraphrases
+  overrides/         # manual label decisions, committed
+  data/              # loaders, alias handling, subject location (incl. TriviaQA), subject-based splits
+  generation/        # greedy + samples, hidden states / attention, subject-state stage, checkpointing
+  correctness/       # strict/relaxed matching, alias cleaning, head-word stripping, abstain, partial, flags, overrides
+  labeling/          # co-occurrence, AH/UH, ambiguity check on AH rows
   entropy/           # token, sequence, semantic, layer-wise, attention, combination features
-  probes/            # SEP training per level / layer / position
-  classifier/        # two-stage + flat classifiers
-  eval/              # metrics, bootstrap CIs, baselines, per-dataset / per-relation tables
-  reporting/         # REPORT.md, automatic checks, DASHBOARD.png (§7)
+  probes/            # entropy-level probes, subject-familiarity probe
+  classifier/        # two-stage + flat classifiers, ablations
+  eval/              # metrics, bootstrap CIs, baselines, within-relation / group / transfer tables
+  reporting/         # REPORT.md, checks, DASHBOARD.png
   run.py
   requirements.txt
 ```
 
 ## 7. The report (every run)
 
-Goal: the user checks **one status line**, and sends Claude **one file**. Nobody hunts through files.
+Goal: the user checks **one status line** and sends Claude **one file**.
 
-`REPORT.md` is written to `/kaggle/working/` and printed as the **last thing in the log**, between clear markers. Structure:
+`REPORT.md` is written to `/kaggle/working/` and printed as the **last thing in the log**, between
+`REPORT START` / `REPORT END` markers:
 
-```
-==================== REPORT START ====================
-STATUS: ✅ PASS                      (or ⚠️ WARN / ❌ FAIL)
-Milestone: M1.5 | qwen2.5-3b | popqa | n=200 | stages: correctness | commit a1b2c3d
+1. **STATUS** line (✅ PASS / ⚠️ WARN / ❌ FAIL) + milestone, model, dataset, n, stages, commit.
+2. **CHECKS**: one line each, ✅/⚠️/❌, with plain-words explanation for every ⚠️/❌.
+3. **KEY NUMBERS**: per stage, small plain-text tables with percentages and `n`.
+4. **ACTION NEEDED**: only when needed; rows printed inline (up to 20), rest in `REVIEW.csv`.
+5. **FOR CLAUDE**: compact block (≤ 60 lines) with every number and setting Claude would ask about.
 
-CHECKS
-✅ no empty predictions
-✅ no subject leakage across splits
-✅ all checkpoints complete
-⚠️ accuracy 12% (expected 15–25%)
+Checks (expected ranges):
+- generation / subject-state: no empty predictions, all checkpoints complete, no subject leakage, subject found ≥ 95%
+- correctness: abstain < 15%, partial < 5%, accuracy within expected range per dataset
+- entropy: no NaN/inf, every feature has non-zero variance
+- probes/classifier: AUROC > 0.5; warn if any class has < 30 test examples; warn if within-relation AUROC is much lower than pooled (> 0.10 gap)
 
-KEY NUMBERS
-  correct   36 (18.0%) | wrong 149 (74.5%) | abstain 14 (7.0%) | excluded 1
-  changed vs previous run: 14 wrong → abstain, 2 wrong → correct (overrides)
-  aliases dropped as generic: 3
-  accuracy by relation (top 5 by n)
-    occupation   n=31  12.9%  ███
-    author       n=24  25.0%  █████
+Key numbers per stage:
+- **generation / subject-state:** done / total, time per question, answer tokens, % finished cleanly, subject found
+- **correctness:** counts for correct / wrong / abstain / partial, changes vs previous run, aliases dropped, head-word matches, flag counts, **label counts per relation and per open/closed group**
+- **entropy:** mean ± std of each feature per label; single-feature AUROC (correct vs wrong) sorted, **pooled and within-relation**; correlation matrix
+- **labeling:** FA/AH/UH/abstain/partial counts per cutoff and per group; AH before/after ambiguity check
+- **probes:** AUROC by layer × position; familiarity probe AUROC by layer; best marked
+- **classifier/eval:** AUROC / AUPRC with 95% CI and ECE per stage and class; comparison vs every baseline incl. relation-only; feature-set ablation table; within-relation and open/closed tables; inference time per question
 
-ACTION NEEDED                         (section only present when needed)
-  7 rows need a decision → listed below (also in REVIEW.csv)
-  qid | question | pred | aliases | strict | relaxed
-
-FOR CLAUDE (paste everything between the markers)
-  compact plain-text block, ≤ 60 lines: milestone, commit, config summary,
-  all counts and metrics with CIs, all warnings, run time
-==================== REPORT END ======================
-```
-
-Rules:
-- **STATUS** is ❌ FAIL if any hard check fails, ⚠️ WARN if any soft check is outside its expected range, else ✅ PASS.
-- Every stage defines its own checks with expected ranges, e.g.:
-  - generation: no empty predictions, all checkpoints complete, no subject leakage
-  - correctness: abstain rate < 15%, accuracy within expected range per dataset
-  - entropy: no NaN/inf features, every feature has non-zero variance
-  - probes/classifier: AUROC > 0.5, no class with < 30 test examples (warn)
-- Each warning line says what is wrong in plain words.
-- Plain-text tables and unicode bars only; no extra dependencies. Percentages next to every count; always show `n`.
-- Per stage, the key numbers are:
-  - **generation:** questions done, time per question, mean answer tokens, % finished cleanly
-  - **correctness:** outcome counts strict vs relaxed, changes vs previous run, aliases dropped, review rows, flag counts, accuracy by relation
-  - **entropy:** mean ± std of each feature per label; single-feature AUROC (correct vs wrong) sorted; correlation matrix of entropy levels
-  - **labeling:** FA/AH/UH/abstain/excluded counts for each co-occurrence cutoff
-  - **probes:** AUROC by layer × position, best layer marked
-  - **classifier/eval:** AUROC / AUPRC with 95% CI and ECE per stage and class; comparison table against every baseline with the best marked; confusion matrix
-- `DASHBOARD.png`: one image combining the stage's key plots (feature histograms per label, ROC curves vs baselines, probe AUROC vs layer, reliability diagram). Optional for the user; every important number is also in the text report.
-- `summary.json` with the same numbers goes to `outputs/<run>/`.
+Plain-text tables and unicode bars only. `DASHBOARD.png` combines the stage's key plots; optional for the user.
+`summary.json` with the same numbers goes to `outputs/<run>/`.
 
 ## 8. Build order — one milestone at a time, test before moving on
 
-1. **M1 (done):** data + generation + correctness, 200 PopQA questions.
-2. **M1.5:** §3 correctness changes (alias cleaning, abstain, strict/relaxed, overrides, flags) + §5 notebook + §7 report.
-   Rerun `--stages correctness` on the saved 200.
-3. **Full generation:** all 14,267 PopQA questions (`--stages generation,correctness`).
-4. **M2:** `entropy/` all features. Develop and check on a 200-question subset first, then run on everything.
-5. **M3:** AH/UH labels with the Wikipedia proxy; manual check of ~100 labels; review flags.
-6. **M4:** probes.
-7. **M5:** classifier + eval with all baselines and bootstrap CIs.
-8. **M6:** OLMo + infini-gram proxy validation; TriviaQA and NQ-Open; pooled and cross-dataset results.
+1. **M1, M1.5, full PopQA generation:** done.
+2. **M1.6:** §3 correctness changes (head-word stripping, `partial`, religion exemption, flag no longer excludes, relation groups in reports). `--stages correctness`. No GPU.
+3. **Subject-state stage** (H4): `--stages subject_states` on all PopQA.
+4. **M2:** `entropy/` all features. Develop and check on a 200-question subset first, then run on all.
+5. **TriviaQA generation** (+ subject location, correctness, subject states) — can run in a separate Kaggle session while M3–M5 are developed.
+6. **M3:** AH/UH labels with the Wikipedia proxy; ambiguity check on AH rows; manual check of ~100.
+7. **M4:** entropy-level probes + familiarity probe.
+8. **M5:** classifier, ablations, all baselines, bootstrap CIs, within-relation and group tables. Answers H1, H1b, H2, H3, H4, H5.
+9. **M6:** OLMo + infini-gram proxy validation; cross-dataset transfer (H8); NQ-Open optional.
+10. **Optional:** H6 paraphrase stage, H7 disambiguation stage.
 
 ## 9. Open decisions (defaults in place; revisit with real data)
 
-- **Judge for review rows at scale:** NLI vs LLM judge — decide after seeing the review count on full PopQA.
 - **AH/UH co-occurrence cutoff:** configurable; report 2–3 cutoffs plus manual-check agreement.
-- **Automatic ambiguity detection:** Wikidata homonym check — decide at M3 whether the heuristic flag is enough.
+- **Ambiguity check method on AH rows:** disambiguation-page lookup vs Wikidata homonym check — decide at M3.
+- **TriviaQA subject location:** entity-page titles by default; if too many questions have no subject found, consider an NER or LLM-based extractor.
+- **Relation group membership:** occupation is borderline (open vs closed); keep configurable and report both.
 
 ## 10. Coding conventions
 
@@ -301,10 +308,57 @@ Rules:
 
 ## 11. How Claude Code works with the user
 
-- **After writing code, always end with run instructions:**
-  1. the exact text for notebook cell 2
-  2. the expected result (e.g. "STATUS should be PASS, accuracy about 18%, ~14 abstain")
-  3. how long the run should take
-- **Label decisions:** when the user gives decisions (e.g. "Avatar = correct, Atlanta = gold_noise"), write them to the overrides file and commit.
+- **Show the diff and explain the change before committing.** The user reads the code to learn it.
+- **Before every run, state:** the stages, GPU on/off, expected duration, and expected result
+  (e.g. "STATUS should be PASS, ~2,000 correct, partial ~1–2%"). Then run it through `scripts/kaggle_run.sh` (§12).
+- **Label decisions:** write decisions the user gives to the overrides file and commit.
 - **At the end of each milestone:** update §0 with what was done, key numbers, and what is next. Commit.
 - Never ask the user to find files inside Kaggle; everything needed is in `REPORT.md`.
+
+## 12. Kaggle CLI automation and safety
+
+### Flow for every run
+1. Claude Code changes code → shows the diff → user agrees → commit and `git push`.
+2. Claude Code states stages, GPU on/off, expected duration (§11).
+3. Claude Code calls `scripts/kaggle_run.sh`. The Claude Code permission prompt shows the full command; **the user's approval of that prompt is the "yes".**
+4. The script pushes the kernel, waits, downloads outputs, and copies `REPORT.md` to `reports/<YYYY-MM-DD>_<run>_<stages>.md`.
+5. Claude Code reads the report, tells the user STATUS and the key numbers, commits the report, and **stops**.
+
+### Rules for Claude Code (must follow)
+1. **Never start a run without the user's explicit yes in the current conversation.** Approval does not carry over to later runs.
+2. **Never run the `generation` stage** unless the user asks for it by name in the current conversation.
+3. **CPU-only stages run with the GPU off:** correctness, labeling, probes, classifier, eval, reporting.
+   GPU on only for: generation, subject_states, entropy (NLI), paraphrase, disambig.
+4. **One run at a time. Never chain runs automatically**, even if the next step is obvious. After a run: report and stop.
+5. **Never retry a failed GPU run automatically.** Report the failure and wait.
+6. **Never read, print, copy, move or commit `~/.kaggle/kaggle.json`** or any token. Never put tokens in code, configs, logs or reports.
+7. **Never delete or overwrite** Kaggle datasets, kernels or kernel versions. No `kaggle ... delete` commands.
+8. **Never change Kaggle account settings** or create new Kaggle datasets/kernels without asking.
+9. If anything unexpected happens (unknown error, quota message, run much longer than expected): stop and tell the user.
+
+### Guards inside `scripts/kaggle_run.sh` (enforced in code)
+- Required arguments: `--stages <list>` and `--gpu on|off`. No defaults for either.
+- Refuses `--gpu on` for CPU-only stages, and `--gpu off` for GPU stages (lists from rule 3, in one config file).
+- Refuses `generation` unless `--allow-generation` is also passed.
+- Refuses to run if the git working tree is dirty or the current commit is not pushed (Kaggle clones from GitHub, so it would run old code). Passes the commit hash to the run and checks it appears in `REPORT.md`.
+- Prints a summary before pushing: stages, GPU on/off, commit, kernel id.
+- Waits with `kaggle kernels status` at most every 60 s; stops waiting (without cancelling the run) after a configurable time limit and tells the user.
+- Downloads outputs with `kaggle kernels output`, copies only `REPORT.md` (and `DASHBOARD.png`) into `reports/`.
+- Never prints environment variables or credentials.
+
+### Kernel setup
+- `kaggle/kernel-metadata.json`: kernel id, notebook path, internet on, GPU flag set per run by the script,
+  previous outputs attached as sources. **Check the current Kaggle CLI documentation** for the exact
+  metadata fields (GPU type selection, attaching previous kernel outputs or datasets); do not assume.
+- The notebook reads stages from a small config the script writes (not by editing cells).
+
+### Claude Code permission settings (`.claude/settings.json` at the repo root)
+Enforced by Claude Code itself. Verify the exact syntax against the current Claude Code documentation.
+- **allow** (no prompt): `kaggle kernels status`, `kaggle kernels list`, `git status`, `git diff`, `git log`
+- **ask** (prompt every time; the user must never choose "always allow" for these): `scripts/kaggle_run.sh`, `kaggle kernels push`, `kaggle kernels output`, `git push`
+- **deny**: any `kaggle` command containing `delete`; `kaggle datasets create`; `kaggle datasets version`;
+  reading `~/.kaggle/**`; `rm -rf` outside `outputs/`
+
+### Repo hygiene
+- `.gitignore`: `kaggle.json`, `.kaggle/`, `outputs/`, `*.npy`, `*.pt`, checkpoints.
+- `reports/` **is** committed (small text files; history of every run's results).

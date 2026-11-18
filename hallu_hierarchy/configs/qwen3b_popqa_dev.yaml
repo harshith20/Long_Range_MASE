@@ -33,15 +33,17 @@ generation:
 correctness:                # CLAUDE.md §3; runs on saved generations (no GPU)
   refusal_patterns: configs/refusal_patterns.yaml
   generic_aliases: configs/generic_aliases.yaml
-  relaxed_min_words: 2      # relaxed match needs the prediction to be >= 2 words ...
+  head_words: configs/head_words.yaml
+  relation_groups: configs/relation_groups.yaml
+  relaxed_min_words: 2      # relaxed-only match (-> partial) needs the prediction to be >= 2 words ...
   relaxed_min_chars: 6      # ... or >= 6 characters
-  ambiguous_single_word: true
+  ambiguous_single_word: true   # flag is a column only; excludes nothing
   ambiguous_subjects: []    # extra generic subject titles to flag
   # overrides: default overrides/<dataset>_<model>.csv (e.g. overrides/popqa_qwen2.5-3b.csv)
   # report checks (soft: outside the range -> WARN)
   expected_accuracy: [0.10, 0.30]   # PopQA; low accuracy is expected
   max_abstain_rate: 0.15
-  max_ambiguous_frac: 0.30
+  max_partial_rate: 0.05
 
 # input_run_dir: on Kaggle, attached inputs are searched for a folder named <run_name>;
 # set this (or --input-run-dir) only to point somewhere else.

@@ -1,0 +1,25 @@
+# Relation groups for H5 and all reporting (CLAUDE.md §3). Analysis only: relation type and
+# group are never classifier features (rule 10).
+# closed-set: few plausible answers, guessable. open-set: person/entity names, recall needed.
+closed:
+  - country
+  - capital
+  - capital of
+  - sport
+  - genre
+  - religion
+  - color
+open:
+  - director
+  - screenwriter
+  - producer
+  - author
+  - composer
+  - father
+  - mother
+  - place of birth
+  - occupation
+# Borderline relations (§9): kept in the group above and also reported on their own line,
+# so results can be read with them moved to the other group.
+borderline:
+  - occupation

@@ -1,21 +1,22 @@
-# Refusal patterns -> label `abstain` (CLAUDE.md §3 Correctness, step 2).
+# Refusal patterns -> label `abstain` (CLAUDE.md §3 Correctness, step 3).
 # Patterns are normalized like answers (lowercase, punctuation and articles a/an/the removed),
-# so "is not a" is stored as "is not". Every match is logged to correctness/abstain_log.csv;
-# audit it after each run and edit this list here, not in code. An empty answer always abstains.
+# so "is not a" and "is not" are the same pattern. Every match is logged to
+# outputs/<run>/correctness/abstain_log.csv. An empty answer always abstains.
 #
 # exact:    the whole normalized answer equals the pattern ("Unknown." -> abstain,
 #           but "Unknown Pleasures" is still judged against the gold aliases)
 # contains: the pattern appears anywhere in the answer as whole words
-#
-# Seed list from M1 (Qwen2.5-3B, 200 PopQA questions).
+# An entry can be {pattern: ..., except_relations: [...]} for relations where the text is a
+# real answer, e.g. "none" for `religion` (no religion).
 exact:
   - unknown
   - unnamed
-  - none
+  - pattern: none
+    except_relations: [religion]
   - nonegiven
   - none given
   - various
 contains:
   - not enough information
   - not applicable
-  - is not a
+  - is not

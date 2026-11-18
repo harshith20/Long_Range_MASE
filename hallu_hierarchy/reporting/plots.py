@@ -7,7 +7,7 @@ import math
 from pathlib import Path
 from typing import Any, Callable
 
-COLORS = {"correct": "#2e7d32", "wrong": "#c62828", "abstain": "#9e9e9e"}
+COLORS = {"correct": "#2e7d32", "wrong": "#c62828", "abstain": "#9e9e9e", "partial": "#f9a825"}
 
 
 def dashboard(plots: list[tuple[str, Callable[[Any], None]]], path: Path, title: str) -> Path | None:
@@ -37,14 +37,14 @@ def dashboard(plots: list[tuple[str, Callable[[Any], None]]], path: Path, title:
 
 
 def outcomes_by_relation(rows: list[dict[str, Any]]) -> Callable[[Any], None]:
-    """Horizontal stacked bars: correct / wrong / abstain counts per relation."""
+    """Horizontal stacked bars: label counts per relation (labels present in the rows)."""
 
     def draw(ax: Any) -> None:
         rs = sorted(rows, key=lambda r: r["n"])
         names = [f"{r['relation']} (n={r['n']})" for r in rs]
         left = [0] * len(rs)
-        for lab in ("correct", "wrong", "abstain"):
-            vals = [r[lab] for r in rs]
+        for lab in ("correct", "wrong", "abstain", "partial"):
+            vals = [r.get(lab, 0) for r in rs]
             ax.barh(names, vals, left=left, color=COLORS[lab], label=lab)
             left = [a + b for a, b in zip(left, vals)]
         ax.set_xlabel("questions")
