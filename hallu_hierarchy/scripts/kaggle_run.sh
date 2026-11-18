@@ -212,7 +212,13 @@ mkdir -p "$DL"
 "$KAGGLE" kernels output "$TARGET" -p "$DL" --file-pattern '^(REPORT\.md|DASHBOARD\.png)$' -o -q \
   || info "download of REPORT.md failed"
 DATE="$(date +%Y-%m-%d)"
-NAME="${DATE}_${RUN_NAME}_${STAGES//,/+}"
+# Kernel version (or the UTC stamp) makes the name unique: two runs of the same stages on the same
+# day must never overwrite each other's report (E05 overwrote E04's copy before this fix).
+if [[ -n "$VERSION" ]]; then SUFFIX="v$VERSION"; else SUFFIX="$STAMP"; fi
+NAME="${DATE}_${RUN_NAME}_${STAGES//,/+}_${SUFFIX}"
+if [[ -e "$HH/reports/$NAME.md" ]]; then
+  NAME="${NAME}_${STAMP}"
+fi
 if [[ -f "$DL/REPORT.md" ]]; then
   cp "$DL/REPORT.md" "$HH/reports/$NAME.md"
   [[ -f "$DL/DASHBOARD.png" ]] && cp "$DL/DASHBOARD.png" "$HH/reports/$NAME.png"
