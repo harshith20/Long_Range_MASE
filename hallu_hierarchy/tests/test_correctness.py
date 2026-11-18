@@ -97,6 +97,10 @@ def test_labels(pred, aliases, relation, label):
         ("Not enough information", "not enough information"),
         ("Pygmalion is not a person", "is not"),
         ("", "<empty>"),
+        ("Not specified.", "not specified"),             # E06
+        ("Unspecified", "unspecified"),
+        ("Not available", "not available"),
+        ("Not specified in Hinduism", None),              # exact only: a longer answer stays an answer
         ("Unknown Pleasures", None),                      # exact patterns need the whole answer
         ("Munich", None),
     ],

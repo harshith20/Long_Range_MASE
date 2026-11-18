@@ -16,6 +16,9 @@ exact:
   - nonegiven
   - none given
   - various
+  - not specified     # E06: 145 greedy answers were exactly this (screenwriter 75, producer 27, …)
+  - unspecified
+  - not available     # E06: 7 greedy answers
 contains:
   - not enough information
   - not applicable
