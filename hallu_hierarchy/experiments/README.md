@@ -10,3 +10,4 @@ One folder per experiment (CLAUDE.md §13). Raw reports: `../reports/`.
 | [E04](E04_m1-6_correctness/) | 2026-11-18 | M1.6 labels (head words, `partial`) on all PopQA | PASS; 14.3% correct, 1.2% partial; closed 35% vs open 5% |
 | [E05](E05_m1-6b_correctness/) | 2026-11-18 | Religion head words; can H5 be tested within relation? | WARN (capital of refusals); 14.9% correct; only 5/16 relations usable, all closed-set |
 | [E06](E06_open-set_label_audit/) | 2026-11-18 | Are open-set "wrong" labels really wrong? (50 audited) | ~2% matching misses; 2 missed refusals; many ambiguous short titles |
+| [E07](E07_m1-6c_folds_refusals/) | 2026-11-18 | Labels with 5-fold CV + "not specified" refusals | WARN (capital of); 13/16 relations now usable; abstain 6.6% |
