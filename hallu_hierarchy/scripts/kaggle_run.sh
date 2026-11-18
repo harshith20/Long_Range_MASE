@@ -120,7 +120,7 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BUILD="$HH/kaggle/.build/$STAMP"
 mkdir -p "$BUILD"
 "$PY" - "$META" "$HH/$NB_REL" "$BUILD" "$GPU" "$COMMIT" "$CONFIG" "$STAGES" "$STAMP" <<'PYEOF'
-import json, sys, pathlib
+import ast, json, sys, pathlib
 meta_p, nb_p, build, gpu, commit, config, stages, stamp = sys.argv[1:]
 meta = json.load(open(meta_p))
 meta["enable_gpu"] = "true" if gpu == "on" else "false"
@@ -133,7 +133,13 @@ hits = 0
 for cell in nb["cells"]:
     src = "".join(cell["source"]) if isinstance(cell["source"], list) else cell["source"]
     if cell["cell_type"] == "code" and src.startswith(marker):
-        cell["source"] = "RUN_REQUEST = " + json.dumps(request) + src[src.index("\n"):]
+        # A Python literal, not JSON: the cell is Python (True/False, not true/false).
+        line = "RUN_REQUEST = " + repr(request)
+        ns: dict = {}
+        exec(compile(line, "<run_request>", "exec"), {"__builtins__": {}}, ns)
+        if ns["RUN_REQUEST"] != request or ast.literal_eval(repr(request)) != request:
+            sys.exit("injected RUN_REQUEST line does not evaluate back to the request")
+        cell["source"] = line + src[src.index("\n"):]
         hits += 1
 if hits != 1:
     sys.exit(f"expected exactly one '{marker}' line in the notebook, found {hits}")
