@@ -143,7 +143,48 @@ def _counts(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {"n": n, **{lab: c[lab] for lab in LABELS}, "acc": c["correct"] / n if n else 0.0}
 
 
-def summarize(labels: list[dict[str, Any]], unknown_override_qids: list[str], judge: Judge, seed: int) -> dict[str, Any]:
+def _test_counts(rows: list[dict[str, Any]], min_test: int) -> dict[str, Any]:
+    """Training-eligible correct / wrong counts in the test split (for within-relation AUROC, H5)."""
+    t = [r for r in rows if r["split"] == "test" and not r["exclude_from_training"]]
+    tc = sum(r["label"] == "correct" for r in t)
+    tw = sum(r["label"] == "wrong" for r in t)
+    return {"test_correct": tc, "test_wrong": tw, "usable": tc >= min_test and tw >= min_test}
+
+
+def _top_refusal(rows: list[dict[str, Any]]) -> str:
+    c = Counter(r["refusal_pattern"] for r in rows if r["label"] == "abstain" and r["refusal_pattern"])
+    return ", ".join(f"{p} ×{k}" for p, k in c.most_common(2)) or "-"
+
+
+def spop_bins(labels: list[dict[str, Any]], k: int = 10) -> list[dict[str, Any]]:
+    """Accuracy by subject popularity (s_pop) deciles, overall and per open/closed group (H4, M3)."""
+    rows = sorted((r for r in labels if isinstance(r.get("s_pop"), (int, float))), key=lambda r: r["s_pop"])
+    if len(rows) < k:
+        return []
+
+    def acc(rs: list[dict[str, Any]]) -> float | None:
+        return sum(r["label"] == "correct" for r in rs) / len(rs) if rs else None
+
+    out = []
+    for i in range(k):
+        chunk = rows[i * len(rows) // k:(i + 1) * len(rows) // k]
+        closed = [r for r in chunk if r["relation_group"] == "closed"]
+        open_ = [r for r in chunk if r["relation_group"] == "open"]
+        out.append({
+            "decile": i + 1, "s_pop_min": chunk[0]["s_pop"], "s_pop_max": chunk[-1]["s_pop"], "n": len(chunk),
+            "acc": acc(chunk), "abstain": sum(r["label"] == "abstain" for r in chunk) / len(chunk),
+            "n_closed": len(closed), "acc_closed": acc(closed), "n_open": len(open_), "acc_open": acc(open_),
+        })
+    return out
+
+
+def summarize(
+    labels: list[dict[str, Any]], unknown_override_qids: list[str], judge: Judge, seed: int,
+    ccfg: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    ccfg = ccfg or {}
+    min_test = ccfg.get("within_relation_min_test", 30)
+    review_rate = ccfg.get("relation_abstain_review_rate", 0.10)
     n = len(labels)
     auto = Counter(r["label_auto"] for r in labels)
     final = Counter(r["label"] for r in labels)
@@ -160,15 +201,36 @@ def summarize(labels: list[dict[str, Any]], unknown_override_qids: list[str], ju
         by_group[r["relation_group"]].append(r)
         by_split[r["split"]].append(r)
     relations = sorted(
-        ({"relation": k, "group": v[0]["relation_group"], **_counts(v)} for k, v in by_rel.items()),
+        ({"relation": k, "group": v[0]["relation_group"], **_counts(v), **_test_counts(v, min_test),
+          "top_refusal": _top_refusal(v)} for k, v in by_rel.items()),
         key=lambda d: (-d["n"], d["relation"]),
     )
-    groups = {g: _counts(v) for g, v in sorted(by_group.items())}
-    borderline = {b: _counts(by_rel[k]) for k in by_rel for b in judge.borderline if k.lower() == b}
+    groups = {g: {**_counts(v), **_test_counts(v, min_test)} for g, v in sorted(by_group.items())}
+    borderline = {b: {**_counts(by_rel[k]), **_test_counts(by_rel[k], min_test)}
+                  for k in by_rel for b in judge.borderline if k.lower() == b}
 
     partial_rows = [r for r in labels if r["label"] == "partial"]
     rng = random.Random(seed)
     examples = rng.sample(partial_rows, min(N_PARTIAL_EXAMPLES, len(partial_rows)))
+
+    # Abstain audit: example answers for every relation whose abstain rate is above the review rate,
+    # and for the broad "contains" patterns, so the report shows whether real answers are being hidden.
+    abstain_review: dict[str, list[dict[str, Any]]] = {}
+    for r in relations:
+        if r["n"] and r["abstain"] / r["n"] > review_rate:
+            rows = [x for x in by_rel[r["relation"]] if x["label"] == "abstain"]
+            abstain_review[r["relation"]] = [
+                {"qid": x["qid"], "pred": x["pred"], "pattern": x["refusal_pattern"]}
+                for x in rng.sample(rows, min(3, len(rows)))
+            ]
+    contains_examples: dict[str, list[dict[str, Any]]] = {}
+    for p in judge.refusal.contains:
+        rows = [x for x in labels if x["label"] == "abstain" and x["refusal_pattern"] == p.text]
+        if rows:
+            contains_examples[p.text] = [
+                {"qid": x["qid"], "relation": x["relation"], "pred": x["pred"]}
+                for x in rng.sample(rows, min(3, len(rows)))
+            ]
     sample_labels = Counter(lab for r in labels for lab in r["sample_labels"])
     answered = n - final["abstain"]
     return {
@@ -205,6 +267,12 @@ def summarize(labels: list[dict[str, Any]], unknown_override_qids: list[str], ju
             {"qid": r["qid"], "relation": r["relation"], "pred": r["pred"], "gold": r["matched_alias_relaxed"]}
             for r in examples
         ],
+        "within_relation_min_test": min_test,
+        "within_relation_usable": [r["relation"] for r in relations if r["usable"]],
+        "relation_abstain_review_rate": review_rate,
+        "abstain_review": abstain_review,
+        "abstain_contains_examples": contains_examples,
+        "s_pop_deciles": spop_bins(labels),
     }
 
 
@@ -236,6 +304,12 @@ def fill_report(part: Any, s: dict[str, Any], cfg: dict[str, Any], ov_path: Path
     un = s["unassigned_relations"]
     part.soft(not un, "every relation is in an open/closed group" if not un
               else f"relations without a group in relation_groups.yaml: {', '.join(un)}")
+    max_rel = ccfg.get("max_relation_abstain_rate", 0.25)
+    high = [f"{r['relation']} {100 * r['abstain'] / r['n']:.0f}%" for r in s["by_relation"]
+            if r["n"] and r["abstain"] / r["n"] > max_rel]
+    part.soft(not high, f"no relation abstains on more than {100 * max_rel:.0f}% of questions" if not high
+              else f"high abstain in {', '.join(high)} (expected ≤ {100 * max_rel:.0f}%): check the examples "
+                   "under 'abstain audit' — real answers may be caught by a refusal pattern")
 
     # ---- key numbers
     part.key.append(f"correct {pct(c['correct'], n)} | wrong {pct(c['wrong'], n)} | "
@@ -260,9 +334,38 @@ def fill_report(part: Any, s: dict[str, Any], cfg: dict[str, Any], ov_path: Path
     part.key.append("by group")
     part.key += table([head] + [_label_row(g, gc) for g, gc in s["by_group"].items()]
                       + [_label_row(f"({b}: borderline)", bc) for b, bc in s["borderline"].items()], indent="  ")
-    part.key.append("by relation")
-    part.key += table([["", "group", *head[1:]]]
-                      + [_label_row(r["relation"], r, [r["group"]]) for r in s["by_relation"]], indent="  ")
+    mt = s["within_relation_min_test"]
+    part.key.append(f"by relation (test c/w = training-eligible correct/wrong in the test split; "
+                    f"✓ = ≥ {mt} each, usable for within-relation AUROC)")
+    part.key += table([["", "group", *head[1:], "test c/w", "", "top refusal"]] + [
+        _label_row(r["relation"], r, [r["group"]])
+        + [f"{r['test_correct']}/{r['test_wrong']}", "✓" if r["usable"] else "", r["top_refusal"]]
+        for r in s["by_relation"]
+    ], indent="  ")
+    usable = s["within_relation_usable"]
+    part.key.append(f"within-relation usable: {len(usable)} of {len(s['by_relation'])} relations"
+                    + (f" ({', '.join(usable)})" if usable else "") + " | test c/w by group: "
+                    + ", ".join(f"{g} {gc['test_correct']}/{gc['test_wrong']}" for g, gc in s["by_group"].items()))
+
+    if s["s_pop_deciles"]:
+        def a(x: float | None) -> str:
+            return "-" if x is None else f"{100 * x:.1f}%"
+        part.key.append("accuracy by subject popularity (s_pop deciles)")
+        part.key += table([["decile", "s_pop range", "n", "acc", "closed acc (n)", "open acc (n)", "abstain", ""]] + [
+            [str(d["decile"]), f"{d['s_pop_min']}–{d['s_pop_max']}", str(d["n"]), a(d["acc"]),
+             f"{a(d['acc_closed'])} ({d['n_closed']})", f"{a(d['acc_open'])} ({d['n_open']})",
+             a(d["abstain"]), bar(d["acc"] or 0.0, 10)]
+            for d in s["s_pop_deciles"]
+        ], indent="  ")
+
+    if s["abstain_review"] or s["abstain_contains_examples"]:
+        part.key.append(f"abstain audit (relations with abstain > {100 * s['relation_abstain_review_rate']:.0f}%, "
+                        "and the 'contains' patterns): answer → pattern")
+        for rel, ex in s["abstain_review"].items():
+            part.key += [f"  [{rel}] {e['qid']} {e['pred']!r} → {e['pattern']}" for e in ex]
+        for pat, ex in s["abstain_contains_examples"].items():
+            part.key += [f"  ({pat}) {e['qid']} [{e['relation']}] {e['pred']!r}" for e in ex]
+
     if s["partial_examples"]:
         part.key.append(f"partial examples ({len(s['partial_examples'])} random of {c['partial']}): pred → gold")
         part.key += [f"  {e['qid']} [{e['relation']}] {e['pred']!r} → {e['gold']!r}" for e in s["partial_examples"]]
@@ -284,7 +387,12 @@ def fill_report(part: Any, s: dict[str, Any], cfg: dict[str, Any], ov_path: Path
     cl.append("samples " + " ".join(f"{k}={v}" for k, v in sm.items()))
     cl.append("groups " + "; ".join(f"{g}: n={gc['n']} acc={gc['acc']:.3f} partial={gc['partial']}"
                                     for g, gc in s["by_group"].items()))
-    cl.append("(relation table: see KEY NUMBERS)")
+    cl.append(f"within_relation_usable={s['within_relation_usable']} (min {s['within_relation_min_test']} test c/w)")
+    if s["s_pop_deciles"]:
+        cl.append("s_pop deciles acc: " + " ".join(f"{100 * (d['acc'] or 0):.0f}" for d in s["s_pop_deciles"]))
+    cl.append("abstain by relation: " + ", ".join(
+        f"{r['relation']} {r['abstain']}" for r in s["by_relation"] if r["abstain"]))
+    cl.append("(relation table, s_pop table, abstain audit: see KEY NUMBERS)")
 
     part.plots.append(("Greedy outcomes by relation", outcomes_by_relation(s["by_relation"])))
 
@@ -345,7 +453,7 @@ def run(cfg: dict[str, Any], report: Any = None) -> None:
     if stale.exists():
         stale.unlink()
 
-    summary = summarize(labels, unknown, judge, cfg.get("seed", 0))
+    summary = summarize(labels, unknown, judge, cfg.get("seed", 0), ccfg)
     summary["inputs"] = {
         "generations": str(gen_path), "questions": str(q_path),
         "previous_labels": str(prev_path) if prev_path else None,

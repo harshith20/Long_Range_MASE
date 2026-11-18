@@ -197,7 +197,8 @@ def _cfg(tmp_path, overrides):
         "run_name": "r1", "output_root": str(tmp_path / "out"), "seed": 0, "milestone": "M1.6",
         "input_run_dir": str(tmp_path / "kaggle_input"),
         "model": {"id": "Qwen/Qwen2.5-3B-Instruct"}, "data": {"dataset": "popqa"},
-        "correctness": {"overrides": str(overrides), "expected_accuracy": [0.0, 1.0], "max_partial_rate": 0.5},
+        "correctness": {"overrides": str(overrides), "expected_accuracy": [0.0, 1.0], "max_partial_rate": 0.5,
+                        "max_relation_abstain_rate": 1.0},
     }
 
 
@@ -296,3 +297,33 @@ def test_tbg_attention_per_head():
     assert np.allclose(arrs["attn_subj_heads_tbg"][2], att[2][0, :, 4, [1, 2]].sum(-1).numpy(), atol=1e-6)
     _, cut = tbg_attention_per_head(att, [], q_pos=4, row_layers=[0], max_len=3)
     assert cut
+
+
+def test_spop_deciles_and_test_counts():
+    from hallu_hierarchy.correctness.stage import _test_counts, spop_bins
+
+    rows = [{"s_pop": i, "label": "correct" if i >= 15 else "wrong", "relation_group": "closed" if i % 2 else "open",
+             "split": "test" if i % 4 == 0 else "train", "exclude_from_training": False} for i in range(20)]
+    bins = spop_bins(rows, k=4)
+    assert [b["n"] for b in bins] == [5, 5, 5, 5]
+    assert bins[0]["s_pop_min"] == 0 and bins[-1]["s_pop_max"] == 19
+    assert bins[0]["acc"] == 0.0 and bins[-1]["acc"] == 1.0
+    assert bins[-1]["n_closed"] + bins[-1]["n_open"] == 5
+    assert spop_bins([{"s_pop": None}], k=4) == []
+    tc = _test_counts(rows, min_test=2)          # test rows: 0,4,8,12 wrong; 16 correct
+    assert tc == {"test_correct": 1, "test_wrong": 4, "usable": False}
+
+
+def test_report_relation_checks(tmp_path):
+    """High-abstain relations WARN and show examples; usable-relation and s_pop lines appear."""
+    _saved_run(tmp_path)
+    cfg = _cfg(tmp_path, tmp_path / "none.csv")
+    cfg["correctness"].update({"max_relation_abstain_rate": 0.4, "within_relation_min_test": 1})
+    report = _run(cfg)
+    text = (tmp_path / "out" / "REPORT.md").read_text()
+    assert report.status == "warn"
+    assert "high abstain in genre 50%" in text           # q3 of 2 genre rows abstains
+    assert "abstain audit" in text and "[genre] q3 'Unknown' → unknown" in text
+    assert "within-relation usable: 0 of" in text        # fixture has no test split
+    s = json.loads((tmp_path / "out" / "r1" / "correctness" / "summary.json").read_text())
+    assert s["by_relation"][0]["top_refusal"] in ("-", "unknown ×1")
