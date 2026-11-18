@@ -1,7 +1,7 @@
 # E04 — M1.6: correctness rules on all PopQA
 
 2026-11-18 · commit 0155396 · stage correctness · GPU off · kernel v4 · ~2 min · **STATUS ✅ PASS**
-Report: [`reports/2026-11-18_qwen2.5-3b_popqa_full_correctness.md`](../../reports/2026-11-18_qwen2.5-3b_popqa_full_correctness.md)
+Report: [`reports/2026-11-18_qwen2.5-3b_popqa_full_correctness_v4.md`](../../reports/2026-11-18_qwen2.5-3b_popqa_full_correctness_v4.md)
 Attempt 1 (kernel v3) crashed in notebook cell 1 — script bug (`false` written into Python), fixed in 0155396.
 
 ## Why

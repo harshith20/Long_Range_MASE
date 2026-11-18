@@ -8,3 +8,4 @@ One folder per experiment (CLAUDE.md §13). Raw reports: `../reports/`.
 | [E02](E02_m1-5_correctness_dev200/) | 2026-11-17 | Do the M1.5 correctness fixes behave on the 200? | 18.0% correct, 13 refusals separated; ambiguity heuristic flags ~50% |
 | [E03](E03_full-popqa_generation/) | 2026-11-17 | Generate all 14,267 PopQA questions | Done in ~2.9 h; 13.6% strict accuracy; relation confounder visible |
 | [E04](E04_m1-6_correctness/) | 2026-11-18 | M1.6 labels (head words, `partial`) on all PopQA | PASS; 14.3% correct, 1.2% partial; closed 35% vs open 5% |
+| [E05](E05_m1-6b_correctness/) | 2026-11-18 | Religion head words; can H5 be tested within relation? | WARN (capital of refusals); 14.9% correct; only 5/16 relations usable, all closed-set |
