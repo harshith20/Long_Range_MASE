@@ -17,8 +17,13 @@ This folder is a self-contained research project inside a larger repo. Work only
   Closed-set 35.3% vs open-set 5.1% accuracy. 92 of 165 partials were religion ("Catholic" vs "catholic church")
   → `church`, `religion` added as head words; needs a correctness-only rerun (M1.6b).
 - Experiment write-ups: `experiments/` (§13), E01–E04 so far.
-- **Next (in order):** M1.6b correctness rerun (GPU off) → subject-state stage (H4, GPU) → M2 on a 200-question
-  subset → M2 on all → TriviaQA generation → M3.
+- **M1.6b done** (E05, commit 06bf86f, WARN only for `capital of` refusals — real model refusals, not a rule bug):
+  correct 2,128 (14.9%), partial 0.6%. Only 5/16 relations had ≥ 30 correct test examples with one test split,
+  all closed-set → **evaluation switched to 5-fold CV grouped by subject** (§3 Metrics). Popularity is U-shaped
+  (lowest decile 20% vs 7–11% mid) — possible lucky guesses in closed-set relations.
+- **Next (in order):** correctness rerun to write `fold` into the labels (GPU off) + open-set label audit (50 rows)
+  → subject-state stage (H4, GPU) → M2 on a 200-question subset → M2 on all → TriviaQA generation
+  + EntityQuestions pilot → M3.
 
 ## 1. What this project is
 
@@ -59,6 +64,7 @@ A clearly documented negative result on H2 (or H3) is acceptable. Do not tune th
 
 1. **Labels never become features.** FA/AH/UH come from gold answers + co-occurrence. Semantic entropy is a feature, never a label.
 2. **Split by subject entity, not randomly.** The same subject must never appear in both train and test.
+   Evaluation uses **5-fold cross-validation grouped by subject** (`fold` column in the labels).
 3. **Inference must stay cheap (edge setting).** Sampling + NLI is allowed only to *create training targets* and for baselines. At inference time, only single-pass signals: probe outputs, greedy-pass token entropy, layer-wise features, attention features, subject-familiarity probe, classifier.
 4. **Entropy levels are correlated, not independent.** Report the correlation matrix and VIF between them.
 5. **Labels are per model.** Never share labels across models.
@@ -171,9 +177,15 @@ Defined in `configs/relation_groups.yaml`:
 - The previous single-threshold entropy-hierarchy method from earlier thesis work
 
 ### Metrics
+- **Evaluation protocol: 5-fold cross-validation grouped by subject** (decided after E05: a single 20% test split
+  leaves no open-set relation with ≥ 30 correct test examples). Folds are assigned in the correctness stage
+  (`fold` column, deterministic from the seed). For each outer fold: train on 4 folds, test on the 5th.
+  Probe layer, thresholds and hyperparameters are chosen on an **inner subject-grouped split of the 4 training
+  folds only** — never on the test fold. Every question gets exactly one out-of-fold score.
+- Metrics are computed on the **pooled out-of-fold scores**; also report mean ± std over the 5 folds.
 - AUROC and AUPRC per class (one-vs-rest) and per stage; ECE.
-- **Bootstrap 95% CIs** on every AUROC/AUPRC (1,000 resamples, resampling by subject).
-- **Primary tables:** within-relation AUROC (macro average over relations with ≥ 30 test examples per class), open-set vs closed-set results, pooled AUROC alongside.
+- **Bootstrap 95% CIs** on every AUROC/AUPRC (1,000 resamples of the pooled out-of-fold scores, resampling by subject).
+- **Primary tables:** within-relation AUROC (macro average over relations with ≥ 30 out-of-fold examples per class), open-set vs closed-set results, pooled AUROC alongside.
 - Leave-one-relation-out results.
 - Per-dataset, pooled and cross-dataset (H8) tables.
 
@@ -198,12 +210,16 @@ No 7B models: on a T4 they need 4-bit quantization, which alters the hidden stat
 | 1 | **PopQA** (all 14,267) | Long-tail entities, template questions; UH common; has `s_pop`, relation `prop`, Wikipedia titles. Done |
 | 2 | **TriviaQA** (rc.nocontext, validation) | Human-written, specific, rarely ambiguous; more correct answers incl. people; AH expected more often. Run **before OLMo** |
 | 3 | NQ-Open | Optional realism check; a known large share of its questions are ambiguous |
+| pilot | **EntityQuestions** (200-question pilot first) | Wikidata templates like PopQA, with relation and subject fields; many person (open-set) relations, more popular subjects → candidate source of open-set FA and AH. Full run only if the pilot shows a useful correct/wrong mix |
 
 **TriviaQA has no subject field.** Subject span is needed for attention features, H4 and co-occurrence.
 Default: use the question's linked entity titles from TriviaQA's entity pages and locate them in the question text (fuzzy match).
 Questions where no subject can be located get `subject_found = False`, are excluded from subject-dependent features and analyses, and are counted in the report.
 
 **Pooling and reporting:** all rows carry a `dataset` column. Classifiers are trained per dataset **and** pooled.
+Datasets differ in difficulty, so class balance differs by dataset: never balance by dropping evaluation data
+(use class weights), and watch for the dataset acting as a shortcut (question style ≈ label) — per-dataset
+results and cross-dataset transfer (H8) are the guard.
 Always report per dataset; never only pooled numbers. Cross-dataset transfer for H8.
 
 ## 5. Kaggle workflow
@@ -270,9 +286,9 @@ Goal: the user checks **one status line** and sends Claude **one file**.
 
 Checks (expected ranges):
 - generation / subject-state: no empty predictions, all checkpoints complete, no subject leakage, subject found ≥ 95%
-- correctness: abstain < 15%, partial < 5%, accuracy within expected range per dataset
+- correctness: abstain < 15%, partial < 5%, no relation abstains > 25%, accuracy within expected range per dataset, no subject in two folds
 - entropy: no NaN/inf, every feature has non-zero variance
-- probes/classifier: AUROC > 0.5; warn if any class has < 30 test examples; warn if within-relation AUROC is much lower than pooled (> 0.10 gap)
+- probes/classifier: AUROC > 0.5; warn if any class has < 30 out-of-fold examples; warn if within-relation AUROC is much lower than pooled (> 0.10 gap)
 
 Key numbers per stage:
 - **generation / subject-state:** done / total, time per question, answer tokens, % finished cleanly, subject found
@@ -292,6 +308,7 @@ Plain-text tables and unicode bars only. `DASHBOARD.png` combines the stage's ke
 3. **Subject-state stage** (H4): `--stages subject_states` on all PopQA.
 4. **M2:** `entropy/` all features. Develop and check on a 200-question subset first, then run on all.
 5. **TriviaQA generation** (+ subject location, correctness, subject states) — can run in a separate Kaggle session while M3–M5 are developed.
+   **EntityQuestions pilot** (200 questions) in the same period; full run only if its correct/wrong mix helps open-set relations.
 6. **M3:** AH/UH labels with the Wikipedia proxy; ambiguity check on AH rows; manual check of ~100.
 7. **M4:** entropy-level probes + familiarity probe.
 8. **M5:** classifier, ablations, all baselines, bootstrap CIs, within-relation and group tables. Answers H1, H1b, H2, H3, H4, H5.

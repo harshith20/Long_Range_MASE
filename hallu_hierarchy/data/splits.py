@@ -54,3 +54,27 @@ def split_counts(items: list[dict[str, Any]], key: str = "subject_id") -> dict[s
     q = Counter(it["split"] for it in items)
     s = Counter(split for _, split in {(str(it[key]), it["split"]) for it in items})
     return {sp: {"questions": q[sp], "subjects": s[sp]} for sp in sorted(q)}
+
+
+def assign_subject_folds(
+    items: list[dict[str, Any]], k: int, seed: int, key: str = "subject_id"
+) -> dict[str, int]:
+    """subject -> fold in 0..k-1 for subject-grouped k-fold cross-validation (CLAUDE.md §3 Metrics).
+
+    Subjects are shuffled with `seed` and dealt round-robin, so folds differ by at most one
+    subject. Every question of a subject is in the same fold (rule 2), and every question is
+    tested exactly once across the k folds.
+    """
+    if k < 2:
+        raise ValueError(f"need at least 2 folds, got {k}")
+    subjects = sorted({str(it[key]) for it in items})
+    random.Random(seed).shuffle(subjects)
+    return {s: i % k for i, s in enumerate(subjects)}
+
+
+def check_folds(items: list[dict[str, Any]], key: str = "subject_id", fold_key: str = "fold") -> None:
+    seen: dict[str, int] = {}
+    for it in items:
+        s, f = str(it[key]), it[fold_key]
+        if seen.setdefault(s, f) != f:
+            raise AssertionError(f"subject {s!r} appears in folds {seen[s]} and {f}")

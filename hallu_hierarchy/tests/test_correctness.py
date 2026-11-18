@@ -300,7 +300,7 @@ def test_tbg_attention_per_head():
 
 
 def test_spop_deciles_and_test_counts():
-    from hallu_hierarchy.correctness.stage import _test_counts, spop_bins
+    from hallu_hierarchy.correctness.stage import _eval_counts, spop_bins
 
     rows = [{"s_pop": i, "label": "correct" if i >= 15 else "wrong", "relation_group": "closed" if i % 2 else "open",
              "split": "test" if i % 4 == 0 else "train", "exclude_from_training": False} for i in range(20)]
@@ -310,8 +310,10 @@ def test_spop_deciles_and_test_counts():
     assert bins[0]["acc"] == 0.0 and bins[-1]["acc"] == 1.0
     assert bins[-1]["n_closed"] + bins[-1]["n_open"] == 5
     assert spop_bins([{"s_pop": None}], k=4) == []
-    tc = _test_counts(rows, min_test=2)          # test rows: 0,4,8,12 wrong; 16 correct
-    assert tc == {"test_correct": 1, "test_wrong": 4, "usable": False}
+    ec = _eval_counts(rows, min_test=5)          # CV: all eligible rows count (15 wrong, 5 correct)
+    assert ec == {"eval_correct": 5, "eval_wrong": 15, "usable": True}
+    rows[19]["exclude_from_training"] = True
+    assert _eval_counts(rows, min_test=5)["usable"] is False
 
 
 def test_report_relation_checks(tmp_path):
@@ -327,3 +329,32 @@ def test_report_relation_checks(tmp_path):
     assert "within-relation usable: 0 of" in text        # fixture has no test split
     s = json.loads((tmp_path / "out" / "r1" / "correctness" / "summary.json").read_text())
     assert s["by_relation"][0]["top_refusal"] in ("-", "unknown ×1")
+
+
+def test_subject_folds():
+    from hallu_hierarchy.data.splits import assign_subject_folds, check_folds
+
+    items = [{"subject_id": f"s{i % 23}"} for i in range(100)]
+    f = assign_subject_folds(items, 5, seed=0)
+    assert set(f.values()) == {0, 1, 2, 3, 4} and len(f) == 23
+    sizes = [list(f.values()).count(k) for k in range(5)]
+    assert max(sizes) - min(sizes) <= 1                      # subjects dealt round-robin
+    assert f == assign_subject_folds(items, 5, seed=0)       # deterministic
+    assert f != assign_subject_folds(items, 5, seed=1)
+    check_folds([{"subject_id": it["subject_id"], "fold": f[it["subject_id"]]} for it in items])
+    with pytest.raises(AssertionError):
+        check_folds([{"subject_id": "a", "fold": 0}, {"subject_id": "a", "fold": 1}])
+    with pytest.raises(ValueError):
+        assign_subject_folds(items, 1, seed=0)
+
+
+def test_stage_writes_folds(tmp_path):
+    _saved_run(tmp_path)
+    cfg = _cfg(tmp_path, tmp_path / "none.csv")
+    cfg["evaluation"] = {"folds": 3}
+    _run(cfg)
+    labels = read_jsonl(tmp_path / "out" / "r1" / "correctness" / "labels.jsonl")
+    assert {r["fold"] for r in labels} <= {0, 1, 2} and all(r["subject_id"] for r in labels)
+    text = (tmp_path / "out" / "REPORT.md").read_text()
+    assert "✅ 3-fold CV grouped by subject: no subject in two folds" in text
+    assert "eval c/w" in text

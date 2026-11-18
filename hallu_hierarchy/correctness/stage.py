@@ -30,6 +30,7 @@ from ..utils import (
     find_upstream, read_jsonl, report_dir, resolve_pkg_path, run_dir, write_json, write_jsonl,
     write_meta,
 )
+from ..data.splits import assign_subject_folds, check_folds
 from .matching import LABELS, RefusalPatterns, auto_label, load_head_words, match
 from .review import (
     ambiguous_subject_heuristic, clean_aliases, load_generic_aliases, load_overrides,
@@ -91,7 +92,7 @@ def previous_label(prev: dict[str, Any] | None) -> str | None:
 
 def label_question(
     rec: dict[str, Any], q: dict[str, Any], judge: Judge, ccfg: dict[str, Any],
-    override: dict[str, Any], prev: dict[str, Any] | None, dataset: str,
+    override: dict[str, Any], prev: dict[str, Any] | None, dataset: str, fold: int | None = None,
 ) -> dict[str, Any]:
     meta = q.get("meta") or {}
     relation = meta.get("prop") or "unknown"
@@ -108,10 +109,12 @@ def label_question(
         "qid": rec["qid"],
         "dataset": dataset,
         "split": rec["split"],
+        "fold": fold,  # subject-grouped CV fold (CLAUDE.md §3 Metrics)
         "relation": relation,
         "relation_group": judge.group(relation),  # analysis only, never a feature
         "s_pop": meta.get("s_pop"),
         "subject": rec.get("subject"),
+        "subject_id": str(q.get("subject_id") or rec.get("subject")),
         "question": rec["question"],
         "pred": rec["greedy"]["text"],
         "aliases": aliases,
@@ -143,17 +146,30 @@ def _counts(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {"n": n, **{lab: c[lab] for lab in LABELS}, "acc": c["correct"] / n if n else 0.0}
 
 
-def _test_counts(rows: list[dict[str, Any]], min_test: int) -> dict[str, Any]:
-    """Training-eligible correct / wrong counts in the test split (for within-relation AUROC, H5)."""
-    t = [r for r in rows if r["split"] == "test" and not r["exclude_from_training"]]
-    tc = sum(r["label"] == "correct" for r in t)
-    tw = sum(r["label"] == "wrong" for r in t)
-    return {"test_correct": tc, "test_wrong": tw, "usable": tc >= min_test and tw >= min_test}
+def _eval_counts(rows: list[dict[str, Any]], min_test: int) -> dict[str, Any]:
+    """Training-eligible correct / wrong counts available for evaluation (H5 within-relation AUROC).
+
+    With subject-grouped k-fold cross-validation every question is tested exactly once, so the
+    evaluation set is all eligible rows; within-relation AUROC uses the pooled out-of-fold scores.
+    """
+    t = [r for r in rows if not r["exclude_from_training"]]
+    ec = sum(r["label"] == "correct" for r in t)
+    ew = sum(r["label"] == "wrong" for r in t)
+    return {"eval_correct": ec, "eval_wrong": ew, "usable": ec >= min_test and ew >= min_test}
 
 
 def _top_refusal(rows: list[dict[str, Any]]) -> str:
     c = Counter(r["refusal_pattern"] for r in rows if r["label"] == "abstain" and r["refusal_pattern"])
     return ", ".join(f"{p} ×{k}" for p, k in c.most_common(2)) or "-"
+
+
+def _fold_check(labels: list[dict[str, Any]]) -> str | None:
+    """None if every subject sits in exactly one fold, else the error message (rule 2)."""
+    try:
+        check_folds([r for r in labels if r["fold"] is not None])
+    except AssertionError as e:
+        return str(e)
+    return None
 
 
 def spop_bins(labels: list[dict[str, Any]], k: int = 10) -> list[dict[str, Any]]:
@@ -201,12 +217,12 @@ def summarize(
         by_group[r["relation_group"]].append(r)
         by_split[r["split"]].append(r)
     relations = sorted(
-        ({"relation": k, "group": v[0]["relation_group"], **_counts(v), **_test_counts(v, min_test),
+        ({"relation": k, "group": v[0]["relation_group"], **_counts(v), **_eval_counts(v, min_test),
           "top_refusal": _top_refusal(v)} for k, v in by_rel.items()),
         key=lambda d: (-d["n"], d["relation"]),
     )
-    groups = {g: {**_counts(v), **_test_counts(v, min_test)} for g, v in sorted(by_group.items())}
-    borderline = {b: {**_counts(by_rel[k]), **_test_counts(by_rel[k], min_test)}
+    groups = {g: {**_counts(v), **_eval_counts(v, min_test)} for g, v in sorted(by_group.items())}
+    borderline = {b: {**_counts(by_rel[k]), **_eval_counts(by_rel[k], min_test)}
                   for k in by_rel for b in judge.borderline if k.lower() == b}
 
     partial_rows = [r for r in labels if r["label"] == "partial"]
@@ -268,6 +284,10 @@ def summarize(
             for r in examples
         ],
         "within_relation_min_test": min_test,
+        "folds": len({r["fold"] for r in labels if r["fold"] is not None}),
+        "fold_sizes": [sum(r["fold"] == f for r in labels)
+                       for f in sorted({r["fold"] for r in labels if r["fold"] is not None})],
+        "fold_check": _fold_check(labels),
         "within_relation_usable": [r["relation"] for r in relations if r["usable"]],
         "relation_abstain_review_rate": review_rate,
         "abstain_review": abstain_review,
@@ -292,6 +312,9 @@ def fill_report(part: Any, s: dict[str, Any], cfg: dict[str, Any], ov_path: Path
     part.summary = s
 
     # ---- checks
+    fc = s["fold_check"]
+    part.hard(fc is None, f"{s['folds']}-fold CV grouped by subject: no subject in two folds "
+              f"(fold sizes {s['fold_sizes']})" if fc is None else f"fold leakage: {fc}")
     max_abst = ccfg.get("max_abstain_rate", 0.15)
     part.soft(s["abstain_rate"] < max_abst, f"abstain rate {100 * s['abstain_rate']:.1f}%"
               + ("" if s["abstain_rate"] < max_abst else f" (expected < {100 * max_abst:.0f}%: check the refusal patterns)"))
@@ -335,17 +358,17 @@ def fill_report(part: Any, s: dict[str, Any], cfg: dict[str, Any], ov_path: Path
     part.key += table([head] + [_label_row(g, gc) for g, gc in s["by_group"].items()]
                       + [_label_row(f"({b}: borderline)", bc) for b, bc in s["borderline"].items()], indent="  ")
     mt = s["within_relation_min_test"]
-    part.key.append(f"by relation (test c/w = training-eligible correct/wrong in the test split; "
-                    f"✓ = ≥ {mt} each, usable for within-relation AUROC)")
-    part.key += table([["", "group", *head[1:], "test c/w", "", "top refusal"]] + [
+    part.key.append(f"by relation (eval c/w = training-eligible correct/wrong, each tested once in "
+                    f"{s['folds']}-fold CV; ✓ = ≥ {mt} each, usable for within-relation AUROC)")
+    part.key += table([["", "group", *head[1:], "eval c/w", "", "top refusal"]] + [
         _label_row(r["relation"], r, [r["group"]])
-        + [f"{r['test_correct']}/{r['test_wrong']}", "✓" if r["usable"] else "", r["top_refusal"]]
+        + [f"{r['eval_correct']}/{r['eval_wrong']}", "✓" if r["usable"] else "", r["top_refusal"]]
         for r in s["by_relation"]
     ], indent="  ")
     usable = s["within_relation_usable"]
     part.key.append(f"within-relation usable: {len(usable)} of {len(s['by_relation'])} relations"
-                    + (f" ({', '.join(usable)})" if usable else "") + " | test c/w by group: "
-                    + ", ".join(f"{g} {gc['test_correct']}/{gc['test_wrong']}" for g, gc in s["by_group"].items()))
+                    + (f" ({', '.join(usable)})" if usable else "") + " | eval c/w by group: "
+                    + ", ".join(f"{g} {gc['eval_correct']}/{gc['eval_wrong']}" for g, gc in s["by_group"].items()))
 
     if s["s_pop_deciles"]:
         def a(x: float | None) -> str:
@@ -387,7 +410,7 @@ def fill_report(part: Any, s: dict[str, Any], cfg: dict[str, Any], ov_path: Path
     cl.append("samples " + " ".join(f"{k}={v}" for k, v in sm.items()))
     cl.append("groups " + "; ".join(f"{g}: n={gc['n']} acc={gc['acc']:.3f} partial={gc['partial']}"
                                     for g, gc in s["by_group"].items()))
-    cl.append(f"within_relation_usable={s['within_relation_usable']} (min {s['within_relation_min_test']} test c/w)")
+    cl.append(f"within_relation_usable={s['within_relation_usable']} (min {s['within_relation_min_test']} eval c/w, {s['folds']}-fold CV) fold_sizes={s['fold_sizes']}")
     if s["s_pop_deciles"]:
         cl.append("s_pop deciles acc: " + " ".join(f"{100 * (d['acc'] or 0):.0f}" for d in s["s_pop_deciles"]))
     cl.append("abstain by relation: " + ", ".join(
@@ -429,9 +452,14 @@ def run(cfg: dict[str, Any], report: Any = None) -> None:
     overrides = load_overrides(ov_path)
     unknown = sorted(set(overrides) - {r["qid"] for r in records})
 
+    # Subject-grouped k-fold CV (CLAUDE.md §3 Metrics): same subject -> same fold, deterministic.
+    k = int((cfg.get("evaluation") or {}).get("folds", 5))
+    subj = {r["qid"]: str(questions.get(r["qid"], {}).get("subject_id") or r.get("subject")) for r in records}
+    fold_of = assign_subject_folds([{"subject_id": v} for v in subj.values()], k, cfg.get("seed", 0))
+
     labels = [
         label_question(r, questions.get(r["qid"], {}), judge, ccfg,
-                       overrides.get(r["qid"], {}), prev.get(r["qid"]), dataset)
+                       overrides.get(r["qid"], {}), prev.get(r["qid"]), dataset, fold_of[subj[r["qid"]]])
         for r in records
     ]
     write_jsonl(out / "labels.jsonl", labels)

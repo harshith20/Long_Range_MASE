@@ -47,7 +47,10 @@ correctness:                # CLAUDE.md §3; runs on saved generations (no GPU)
   max_partial_rate: 0.05
   max_relation_abstain_rate: 0.25      # WARN if one relation abstains more than this
   relation_abstain_review_rate: 0.10   # show example refusals for relations above this
-  within_relation_min_test: 30         # correct and wrong per relation in test (H5)
+  within_relation_min_test: 30         # correct and wrong per relation, all folds (H5)
+
+evaluation:                 # CLAUDE.md §3 Metrics
+  folds: 5                  # subject-grouped k-fold CV; every question is tested once
 
 # input_run_dir: on Kaggle, attached inputs are searched for a folder named <run_name>;
 # set this (or --input-run-dir) only to point somewhere else.
