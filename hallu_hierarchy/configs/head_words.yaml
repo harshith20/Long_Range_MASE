@@ -12,3 +12,5 @@ head_words:
   - genre
   - music
   - literature
+  - church      # religion: "Catholic" vs gold "catholic church" (M1.6: 92 religion partials)
+  - religion    # religion: "Muslim" vs gold "muslim religion"

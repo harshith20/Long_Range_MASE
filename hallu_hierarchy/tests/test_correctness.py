@@ -75,6 +75,11 @@ def test_head_word_stripping():
         ("None", ["Islam"], "occupation", "abstain"),
         ("None", ["Islam"], "religion", "wrong"),                       # religion exemption
         ("None", ["irreligion", "none"], "religion", "correct"),
+        ("Catholic", ["Catholic Church"], "religion", "correct"),      # head word "church"
+        ("Muslim", ["Muslim religion"], "religion", "correct"),        # head word "religion"
+        ("Anglican Church", ["Catholic Church"], "religion", "wrong"),  # stripping never loosens
+        ("Christianity", ["Protestant Christianity"], "religion", "partial"),
+        ("Mennonite", ["Mennonite Church USA"], "religion", "partial"),  # not a trailing head word
     ],
 )
 def test_labels(pred, aliases, relation, label):

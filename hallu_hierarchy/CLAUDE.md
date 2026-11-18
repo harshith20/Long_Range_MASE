@@ -12,8 +12,13 @@ This folder is a self-contained research project inside a larger repo. Work only
   - Old ambiguity heuristic flagged 48.8% and set aside ~5,800 rows → replaced in §3 (flag no longer excludes).
   - 261 strict/relaxed disagreements → now resolved by rule (§3), no manual review.
   - **Relation confounder confirmed:** ~74% of correct answers come from closed-set relations, which are ~31% of questions.
-- **Next (in order):** set up Kaggle CLI automation (§12) → M1.6 correctness rerun (first CLI run, GPU off)
-  → subject-state stage (H4) → M2 on a 200-question subset → M2 on all.
+- **Kaggle CLI automation (§12) done**; first CLI runs on kernel `harshithswamy20/hallu-hierarchy-m1-5`.
+- **M1.6 done** (E04, commit 0155396): correct 2,047 (14.3%) | wrong 79.0% | abstain 5.5% | partial 1.2%.
+  Closed-set 35.3% vs open-set 5.1% accuracy. 92 of 165 partials were religion ("Catholic" vs "catholic church")
+  → `church`, `religion` added as head words; needs a correctness-only rerun (M1.6b).
+- Experiment write-ups: `experiments/` (§13), E01–E04 so far.
+- **Next (in order):** M1.6b correctness rerun (GPU off) → subject-state stage (H4, GPU) → M2 on a 200-question
+  subset → M2 on all → TriviaQA generation → M3.
 
 ## 1. What this project is
 
@@ -233,7 +238,8 @@ hallu_hierarchy/
   CLAUDE.md
   kaggle/run.ipynb   # + kernel-metadata.json
   scripts/kaggle_run.sh   # guarded CLI runner (§12)
-  reports/           # committed REPORT.md history
+  reports/           # committed REPORT.md history (raw, one per run)
+  experiments/       # one folder per experiment: why, setup, results, insights, next steps (§13)
   configs/           # model × dataset yamls; refusal_patterns, generic_aliases, head_words, relation_groups, paraphrases
   overrides/         # manual label decisions, committed
   data/              # loaders, alias handling, subject location (incl. TriviaQA), subject-based splits
@@ -312,6 +318,7 @@ Plain-text tables and unicode bars only. `DASHBOARD.png` combines the stage's ke
 - **Before every run, state:** the stages, GPU on/off, expected duration, and expected result
   (e.g. "STATUS should be PASS, ~2,000 correct, partial ~1–2%"). Then run it through `scripts/kaggle_run.sh` (§12).
 - **Label decisions:** write decisions the user gives to the overrides file and commit.
+- **After every run:** write the experiment folder (§13) before proposing the next run.
 - **At the end of each milestone:** update §0 with what was done, key numbers, and what is next. Commit.
 - Never ask the user to find files inside Kaggle; everything needed is in `REPORT.md`.
 
@@ -322,7 +329,8 @@ Plain-text tables and unicode bars only. `DASHBOARD.png` combines the stage's ke
 2. Claude Code states stages, GPU on/off, expected duration (§11).
 3. Claude Code calls `scripts/kaggle_run.sh`. The Claude Code permission prompt shows the full command; **the user's approval of that prompt is the "yes".**
 4. The script pushes the kernel, waits, downloads outputs, and copies `REPORT.md` to `reports/<YYYY-MM-DD>_<run>_<stages>.md`.
-5. Claude Code reads the report, tells the user STATUS and the key numbers, commits the report, and **stops**.
+5. Claude Code reads the report, tells the user STATUS and the key numbers, writes the experiment folder (§13),
+   commits both, and **stops**.
 
 ### Rules for Claude Code (must follow)
 1. **Never start a run without the user's explicit yes in the current conversation.** Approval does not carry over to later runs.
@@ -362,3 +370,27 @@ Enforced by Claude Code itself. Verify the exact syntax against the current Clau
 ### Repo hygiene
 - `.gitignore`: `kaggle.json`, `.kaggle/`, `outputs/`, `*.npy`, `*.pt`, checkpoints.
 - `reports/` **is** committed (small text files; history of every run's results).
+
+## 13. Experiment log (`experiments/`)
+
+Every run that produces results gets one folder, written by Claude Code right after the run (§12 step 5).
+`reports/` keeps the raw `REPORT.md`; `experiments/` keeps the *meaning*. Keep each write-up short:
+only what is useful for the thesis or for deciding the next step. No copied logs, no full tables.
+
+```
+experiments/
+  README.md                         # index: one line per experiment (id, date, question, outcome)
+  E04_m1-6_correctness/README.md    # E<NN>_<short-name>, numbered in run order
+```
+
+Each `README.md` (aim for ≤ 60 lines):
+1. **Header:** date, commit, stages, GPU on/off, kernel version, duration, STATUS, link to the report in `reports/`.
+2. **Why:** the question the run answers and which hypothesis or milestone it serves (1–3 lines).
+3. **Setup:** only what differs from the previous run (config, data, code change).
+4. **Results:** one small table with the numbers that matter; changes vs the previous experiment.
+5. **Insights:** what the numbers mean, incl. surprises and threats to validity (bullets).
+6. **Next steps:** what follows from the insights, in order, each with the reason.
+
+Failed attempts (crash, script bug) get one line in the experiment they belong to, not their own folder.
+A rerun after a small change gets its own short folder that links back and reports only the delta
+(e.g. E05 reruns E04 with two more head words).
