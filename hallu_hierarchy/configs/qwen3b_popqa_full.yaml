@@ -50,9 +50,10 @@ correctness:                # CLAUDE.md §3; runs on saved generations (no GPU)
   within_relation_min_test: 30         # correct and wrong per relation, all folds (H5)
 
 entropy:                    # M2, CLAUDE.md §3 Entropy hierarchy (GPU only for the NLI part)
-  subset: 200               # random seeded subset for development; null = all questions
+  subset: null              # all questions (E11 used a seeded random subset of 200)
   nli_model: microsoft/deberta-large-mnli
-  nli_batch_size: 32
+  nli_batch_size: 128       # pairs are short ("question answer"); length-sorted batches
+  nli_autocast: false       # fp16 autocast overflowed inside DeBERTa on kernel v10 -> fp32 directly
   nli_with_question: true   # entailment between "question answer" strings, as in semantic entropy
   lens_layers: [18, 24, 30, 36]   # hidden-state indices (0 = embeddings, 36 = final, already normed)
   attn_layers: [18, 26, 32]       # transformer-block indices (0-based) for subject attention

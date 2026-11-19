@@ -44,6 +44,7 @@ DEFAULTS = {
     "subset": 200,
     "nli_model": "microsoft/deberta-large-mnli",
     "nli_batch_size": 32,
+    "nli_autocast": True,
     "nli_with_question": True,
     "lens_layers": [18, 24, 30, 36],
     "attn_layers": [18, 26, 32],
@@ -150,7 +151,7 @@ def run(cfg: dict[str, Any], report: Any = None) -> None:
     if todo:
         from .nli import NLI
 
-        nli = NLI(ecfg["nli_model"], batch_size=int(ecfg["nli_batch_size"]))
+        nli = NLI(ecfg["nli_model"], batch_size=int(ecfg["nli_batch_size"]), autocast=bool(ecfg["nli_autocast"]))
         nli_info.update({"device": nli.device, "id2label": nli.id2label, "sanity": nli.sanity()})
         for c in todo:
             r = list(store.chunk_range(c, len(gens)))

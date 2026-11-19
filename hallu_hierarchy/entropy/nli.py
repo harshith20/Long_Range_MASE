@@ -6,7 +6,7 @@ from typing import Any
 
 
 class NLI:
-    def __init__(self, model_id: str, device: str = "cuda", batch_size: int = 32) -> None:
+    def __init__(self, model_id: str, device: str = "cuda", batch_size: int = 32, autocast: bool = True) -> None:
         import torch
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
@@ -18,7 +18,7 @@ class NLI:
         self.model = AutoModelForSequenceClassification.from_pretrained(model_id, torch_dtype=torch.float32)
         self.model = self.model.to(self.device)
         self.model.eval()
-        self.use_autocast = self.device == "cuda"
+        self.use_autocast = autocast and self.device == "cuda"
         self.batch_size = batch_size
         labels = {v.lower(): int(k) for k, v in self.model.config.id2label.items()}
         if "entailment" not in labels:
@@ -65,14 +65,16 @@ class NLI:
 
     def entails(self, pairs: list[tuple[str, str]]) -> list[bool]:
         """For each (premise, hypothesis): is the predicted label 'entailment'?"""
-        out: list[bool] = []
-        torch = self.torch
-        for i in range(0, len(pairs), self.batch_size):
-            batch = pairs[i:i + self.batch_size]
-            enc = self.tok([p for p, _ in batch], [h for _, h in batch], return_tensors="pt",
+        # Sort by length so each batch pads to similar lengths (results are put back in input order).
+        order = sorted(range(len(pairs)), key=lambda k: len(pairs[k][0]) + len(pairs[k][1]))
+        out: list[bool] = [False] * len(pairs)
+        for i in range(0, len(order), self.batch_size):
+            idx = order[i:i + self.batch_size]
+            enc = self.tok([pairs[k][0] for k in idx], [pairs[k][1] for k in idx], return_tensors="pt",
                            padding=True, truncation=True, max_length=256).to(self.device)
             pred = self._logits(enc).argmax(-1).tolist()
-            out += [p == self.entail_id for p in pred]
+            for k, pr in zip(idx, pred):
+                out[k] = pr == self.entail_id
         self.n_pairs += len(pairs)
         return out
 

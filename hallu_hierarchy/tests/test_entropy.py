@@ -226,3 +226,36 @@ def test_nli_falls_back_on_nonfinite(monkeypatch):
     nli = object.__new__(NLI)
     nli.torch, nli.use_autocast, nli.switched_to_fp32, nli.fallback_reason = torch, True, False, None
     assert nli._logits({}).argmax(-1).item() == 0 and nli.fallback_reason == "non-finite logits"
+
+
+def test_nli_length_sorted_batches_keep_input_order(monkeypatch):
+    """Batches are formed after sorting by length; results must come back in the caller's order."""
+    torch = pytest.importorskip("torch")
+    from hallu_hierarchy.entropy.nli import NLI
+
+    class Tok:
+        def __call__(self, prem, hyp, **k):
+            self.last = list(zip(prem, hyp))
+            return SimpleEnc(self.last)
+
+    class SimpleEnc(dict):
+        def __init__(self, pairs):
+            super().__init__()
+            self.pairs = pairs
+
+        def to(self, device):
+            return self
+
+    batches = []
+
+    def fake_logits(self, enc):
+        batches.append([len(p) + len(h) for p, h in enc.pairs])
+        # entailment (index 2) iff premise == hypothesis
+        return torch.tensor([[0.0, 0.0, 1.0] if p == h else [1.0, 0.0, 0.0] for p, h in enc.pairs])
+
+    monkeypatch.setattr(NLI, "_logits", fake_logits)
+    nli = object.__new__(NLI)
+    nli.tok, nli.batch_size, nli.device, nli.entail_id, nli.n_pairs = Tok(), 2, "cpu", 2, 0
+    pairs = [("long answer text", "long answer text"), ("a", "b"), ("mid", "mid"), ("xx", "yy")]
+    assert nli.entails(pairs) == [True, False, True, False]
+    assert batches == [[2, 4], [6, 32]]            # shortest pairs batched together
