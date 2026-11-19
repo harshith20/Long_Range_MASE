@@ -49,6 +49,16 @@ correctness:                # CLAUDE.md §3; runs on saved generations (no GPU)
   relation_abstain_review_rate: 0.10   # show example refusals for relations above this
   within_relation_min_test: 30         # correct and wrong per relation, all folds (H5)
 
+entropy:                    # M2, CLAUDE.md §3 Entropy hierarchy (GPU only for the NLI part)
+  subset: 200               # random seeded subset for development; null = all questions
+  nli_model: microsoft/deberta-large-mnli
+  nli_batch_size: 32
+  nli_with_question: true   # entailment between "question answer" strings, as in semantic entropy
+  lens_layers: [18, 24, 30, 36]   # hidden-state indices (0 = embeddings, 36 = final, already normed)
+  attn_layers: [18, 26, 32]       # transformer-block indices (0-based) for subject attention
+  checkpoint_every: 100
+  min_per_class: 30         # within-relation AUROC only for relations with >= this many per class
+
 evaluation:                 # CLAUDE.md §3 Metrics
   folds: 5                  # subject-grouped k-fold CV; every question is tested once
 

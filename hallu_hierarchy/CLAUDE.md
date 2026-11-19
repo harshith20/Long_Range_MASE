@@ -30,8 +30,8 @@ This folder is a self-contained research project inside a larger repo. Work only
   subject positions identical to generation; last-prompt-token state matches generation (max rel. diff 0.0019).
   States `[14267, 10, 2048]` fp16 at hidden-state indices `[0, 4, …, 32, 36]`.
   - **Index 0 is the embedding layer** (HF `hidden_states[0]`), not a transformer block.
-  - **M2 must check whether index 36 already has the final layer norm applied** (HF may norm the last entry).
-    `generation/generate.py` `logit_lens` already *assumes* it is normed — verify before trusting layer-wise features.
+  - **Index 36 already has the final layer norm applied** (verified in E10: the lens at index 36 reproduces the
+    real first-token distribution, 99.77% top-1, median |ΔH| 0.0000), so `logit_lens` is correct.
 - **Labels regenerated** (E09, kernel v8, commit 8992b47): identical to E07. Final labels with folds are in the
   output of kernel v6 and v8.
 - **Where the data lives (Kaggle):** saving an output as a *new version* of a dataset **replaces** its files.

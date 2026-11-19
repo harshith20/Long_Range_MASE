@@ -61,3 +61,21 @@ def histogram(values: list[float], xlabel: str, bins: int = 30) -> Callable[[Any
         ax.set_ylabel("questions")
 
     return draw
+
+
+def histograms_by_label(rows: list[dict[str, Any]], key: str, bins: int = 30) -> Callable[[Any], None]:
+    """Overlaid histograms of one feature for correct vs wrong (training-eligible rows)."""
+
+    def draw(ax: Any) -> None:
+        import math as _m
+
+        for lab in ("correct", "wrong"):
+            vals = [r[key] for r in rows if r["label"] == lab and not r.get("exclude_from_training")
+                    and r[key] is not None and not _m.isnan(r[key])]
+            if vals:
+                ax.hist(vals, bins=bins, alpha=0.5, density=True, color=COLORS[lab], label=f"{lab} (n={len(vals)})")
+        ax.set_xlabel(key)
+        ax.set_ylabel("density")
+        ax.legend(fontsize=8)
+
+    return draw
