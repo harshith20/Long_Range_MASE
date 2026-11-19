@@ -362,3 +362,31 @@ def test_stage_writes_folds(tmp_path):
     text = (tmp_path / "out" / "REPORT.md").read_text()
     assert "✅ 3-fold CV grouped by subject: no subject in two folds" in text
     assert "eval c/w" in text
+
+
+def test_discover_subject_states_and_label_precedence(tmp_path, monkeypatch):
+    """Mirrors the real Kaggle inputs: generation outputs + old labels in one dataset,
+    subject states alone in another. The subject-states dataset must be found, and old labels
+    are only picked when the run itself has not produced labels."""
+    from hallu_hierarchy import utils
+
+    run = "qwen2.5-3b_popqa_full"
+    old = tmp_path / "input" / "hallu-hierarchy-m-1-5" / "outputs" / run
+    ss = tmp_path / "input" / "hallu-hierarchy-subject-states" / "outputs" / run
+    for d in (old / "generation", old / "correctness", ss / "subject_states"):
+        d.mkdir(parents=True)
+    (old / "correctness" / "labels.jsonl").write_text("old")
+    assert utils.discover_kaggle_inputs(run, root=tmp_path / "input") == [old, ss]
+
+    monkeypatch.setattr(utils, "KAGGLE_INPUT", tmp_path / "input")
+    cfg = {"run_name": run, "output_root": str(tmp_path / "working")}
+    assert utils.find_upstream(cfg, "subject_states/hidden_subject.npy") is None  # file absent in fixture
+    (ss / "subject_states" / "hidden_subject.npy").write_text("x")
+    assert utils.find_upstream(cfg, "subject_states/hidden_subject.npy") == ss / "subject_states" / "hidden_subject.npy"
+    # without a correctness stage in this run, the OLD labels from the dataset are picked
+    assert utils.find_upstream(cfg, "correctness/labels.jsonl") == old / "correctness" / "labels.jsonl"
+    # running correctness first in the same run puts fresh labels in the run folder, which wins
+    fresh = tmp_path / "working" / run / "correctness" / "labels.jsonl"
+    fresh.parent.mkdir(parents=True)
+    fresh.write_text("new")
+    assert utils.find_upstream(cfg, "correctness/labels.jsonl") == fresh

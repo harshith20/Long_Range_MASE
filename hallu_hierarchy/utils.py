@@ -71,16 +71,25 @@ def input_run_dirs(cfg: dict[str, Any]) -> list[Path]:
             if cand.is_dir() and cand not in dirs:
                 dirs.append(cand)
     elif KAGGLE_INPUT.is_dir():
-        dirs += [d for d in discover_kaggle_inputs(cfg["run_name"]) if d not in dirs]
+        dirs += [d for d in discover_kaggle_inputs(cfg["run_name"], root=KAGGLE_INPUT) if d not in dirs]
     return dirs
 
 
+STAGE_OUTPUT_DIRS = ("generation", "data", "correctness", "subject_states")
+
+
 def discover_kaggle_inputs(run_name: str, root: Path = KAGGLE_INPUT, max_depth: int = 6) -> list[Path]:
-    """Folders named `run_name` (holding stage outputs) inside attached Kaggle inputs."""
+    """Folders named `run_name` (holding stage outputs) inside attached Kaggle inputs.
+
+    Order: shallower first, then alphabetical by path. find_upstream() returns the first match,
+    so when two inputs hold the same file (e.g. correctness/labels.jsonl) the alphabetically
+    first dataset wins — stages that need specific labels must check them (or run `correctness`
+    in the same run, whose output folder is searched before any input).
+    """
     found = []
     for depth in range(1, max_depth + 1):
         for cand in sorted(root.glob("/".join(["*"] * (depth - 1) + [run_name]))):
-            if cand.is_dir() and any((cand / s).is_dir() for s in ("generation", "data", "correctness")):
+            if cand.is_dir() and any((cand / s).is_dir() for s in STAGE_OUTPUT_DIRS):
                 found.append(cand)
     return found
 
