@@ -13,9 +13,12 @@ class NLI:
         self.torch = torch
         self.device = device if (device != "cuda" or torch.cuda.is_available()) else "cpu"
         self.tok = AutoTokenizer.from_pretrained(model_id)
-        dtype = torch.float16 if self.device == "cuda" else torch.float32
-        self.model = AutoModelForSequenceClassification.from_pretrained(model_id, torch_dtype=dtype).to(self.device)
+        # Weights stay fp32: DeBERTa mixes fp32 tensors into its attention, so a model cast to fp16
+        # crashes ("expected scalar type Float but found Half", kernel v9). Speed comes from autocast.
+        self.model = AutoModelForSequenceClassification.from_pretrained(model_id, torch_dtype=torch.float32)
+        self.model = self.model.to(self.device)
         self.model.eval()
+        self.use_autocast = self.device == "cuda"
         self.batch_size = batch_size
         labels = {v.lower(): int(k) for k, v in self.model.config.id2label.items()}
         if "entailment" not in labels:
@@ -24,18 +27,33 @@ class NLI:
         self.id2label = dict(self.model.config.id2label)
         self.n_pairs = 0
         self.switched_to_fp32 = False
+        self.fallback_reason: str | None = None
 
-    def _logits(self, enc: Any) -> Any:
-        """fp16 can overflow in DeBERTa; on any non-finite logit, switch the model to fp32 for good."""
+    def _forward(self, enc: Any, autocast: bool) -> Any:
         torch = self.torch
         with torch.no_grad():
-            logits = self.model(**enc).logits
-            if not torch.isfinite(logits).all() and not self.switched_to_fp32:
-                self.model = self.model.float()
-                self.switched_to_fp32 = True
-                logits = self.model(**enc).logits
+            if autocast:
+                with torch.autocast(device_type="cuda", dtype=torch.float16):
+                    return self.model(**enc).logits.float()
+            return self.model(**enc).logits.float()
+
+    def _logits(self, enc: Any) -> Any:
+        """Mixed precision on the GPU; on any error or non-finite logit, fall back to plain fp32 for good."""
+        torch = self.torch
+        if self.use_autocast:
+            try:
+                logits = self._forward(enc, autocast=True)
+                if torch.isfinite(logits).all():
+                    return logits
+                reason = "non-finite logits"
+            except RuntimeError as e:
+                reason = f"{type(e).__name__}: {str(e)[:120]}"
+            self.use_autocast = False
+            self.switched_to_fp32 = True
+            self.fallback_reason = reason
+        logits = self._forward(enc, autocast=False)
         if not torch.isfinite(logits).all():
-            raise FloatingPointError("NLI produced non-finite logits even in fp32")
+            raise FloatingPointError("NLI produced non-finite logits in fp32")
         return logits
 
     def sanity(self) -> dict[str, bool]:

@@ -103,3 +103,28 @@ def attention_features(heads: np.ndarray, layers: list[int]) -> dict[str, float]
         out[f"attn_mean_{layer}"] = float(np.mean(row))
         out[f"attn_max_{layer}"] = float(np.max(row))
     return out
+
+
+def sample_logliks(samples: list[dict]) -> list[float]:
+    """Length-normalized log-likelihood per sample (mean content-token log-prob)."""
+    out = []
+    for s in samples:
+        lp = content_slice(s["token_logprob"], s["ends_with_eos"])
+        out.append(float(np.mean(lp)) if lp else float("nan"))
+    return out
+
+
+def semantic_entropy_weighted(sample_cluster: list[int], logliks: list[float]) -> float:
+    """Probability-weighted semantic entropy (Kuhn et al. 2023; Farquhar et al. 2024):
+    log p(c) = logsumexp of the samples' length-normalized log-likelihoods in cluster c,
+    normalized over the clusters present; entropy of that distribution. Same clusters as the
+    discrete version (abstaining samples are their own cluster). NaN log-likelihoods are skipped."""
+    by_c: dict[int, list[float]] = {}
+    for c, ll in zip(sample_cluster, logliks):
+        if not math.isnan(ll):
+            by_c.setdefault(c, []).append(ll)
+    if not by_c:
+        return float("nan")
+    log_pc = np.array([np.logaddexp.reduce(np.array(v)) for v in by_c.values()])
+    log_pc -= np.logaddexp.reduce(log_pc)
+    return float(-(np.exp(log_pc) * log_pc).sum()) + 0.0

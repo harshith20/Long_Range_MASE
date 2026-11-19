@@ -4,6 +4,7 @@ Features
   token      tok_mean, tok_max            per-token entropy of the greedy answer (content tokens)
   sequence   seq_nll                      mean length-normalized NLL of the N samples
   semantic   sem_entropy, sem_n_clusters  bidirectional-entailment clusters of the N samples
+             sem_entropy_w                same clusters, weighted by sample likelihood (Kuhn et al.)
                                           (DeBERTa-MNLI, "question answer" strings); abstaining
                                           samples form their own cluster
              abstain_frac                 share of abstaining samples (training-time only)
@@ -35,8 +36,8 @@ from ..eval.metrics import auroc, spearman_matrix, vif_from_corr
 from ..reporting.console import pct, table
 from ..utils import find_upstream, read_jsonl, run_dir, write_json, write_jsonl, write_meta
 from .features import (
-    attention_features, cluster_by_entailment, lens_features, semantic_entropy, sequence_nll,
-    token_features, unique_answers,
+    attention_features, cluster_by_entailment, lens_features, sample_logliks, semantic_entropy,
+    semantic_entropy_weighted, sequence_nll, token_features, unique_answers,
 )
 
 DEFAULTS = {
@@ -52,7 +53,7 @@ DEFAULTS = {
     "lens_check_max_median_diff": 0.01,
     "lens_check_min_top1": 0.99,
 }
-ENTROPY_LEVELS = ["tok_mean", "seq_nll", "sem_entropy"]  # + lens_H_<i> added at run time
+ENTROPY_LEVELS = ["tok_mean", "seq_nll", "sem_entropy", "sem_entropy_w"]  # + lens_H_<i> added at run time
 
 
 # ----------------------------------------------------------------------------- inputs
@@ -158,6 +159,7 @@ def run(cfg: dict[str, Any], report: Any = None) -> None:
             print(f"[entropy] NLI chunk {c + 1}/{store.n_chunks(len(gens))} done")
         nli_info["pairs_this_run"] = nli.n_pairs
         nli_info["switched_to_fp32"] = getattr(nli, "switched_to_fp32", False)
+        nli_info["fallback_reason"] = getattr(nli, "fallback_reason", None)
     nli_seconds = time.perf_counter() - t0
     clusters: list[dict[str, Any]] = []
     for c in range(store.n_chunks(len(gens))):
@@ -174,7 +176,9 @@ def run(cfg: dict[str, Any], report: Any = None) -> None:
             "exclude_from_training": lab["exclude_from_training"], "dataset": lab.get("dataset"),
             **token_features(g["greedy"]),
             "seq_nll": sequence_nll(g["samples"]),
-            "sem_entropy": cl["sem_entropy"], "sem_n_clusters": float(cl["sem_n_clusters"]),
+            "sem_entropy": cl["sem_entropy"],
+            "sem_entropy_w": semantic_entropy_weighted(cl["sample_cluster"], sample_logliks(g["samples"])),
+            "sem_n_clusters": float(cl["sem_n_clusters"]),
             "abstain_frac": lab["abstain_frac"],
             **lens_features(lens_H[i], lens_top1[i], list(ecfg["lens_layers"])),
             **attention_features(attn_heads[i], list(ecfg["attn_layers"])),
@@ -278,7 +282,8 @@ def fill_report(part: Any, s: dict[str, Any], feats: list[dict[str, Any]], ecfg:
                   if san["paraphrase_entails"] else "NLI does not see 'Paris' → 'The city of Paris' as entailment: "
                   "paraphrases may split into separate clusters (semantic entropy biased upward)")
     if s["nli"].get("switched_to_fp32"):
-        part.soft(False, "NLI produced non-finite fp16 logits and switched to fp32 (slower; results valid)")
+        part.soft(False, f"NLI mixed precision failed ({s['nli'].get('fallback_reason')}); ran in fp32 "
+                         "instead (slower, results valid)")
     part.hard(s["labels_from_this_run"], "labels with folds produced in this run" if s["labels_from_this_run"]
               else "labels came from an attached dataset, not from this run (risk of stale labels)")
     feats_s = s["features"]
@@ -321,6 +326,9 @@ def fill_report(part: Any, s: dict[str, Any], feats: list[dict[str, Any]], ecfg:
     part.claude.append("auroc " + " ".join(f"{k}={f2(feats_s[k]['auroc_wrong'])}" for k in order))
     part.claude.append(f"vif {dict(zip(s['levels'], s['vif']))}")
 
+    a_d, a_w = feats_s["sem_entropy"]["auroc_wrong"], feats_s["sem_entropy_w"]["auroc_wrong"]
+    part.key.append(f"semantic entropy variants (AUROC wrong vs correct): discrete {f2(a_d)} | "
+                    f"probability-weighted {f2(a_w)} — SEP probe target chosen on the full run")
     for k in ("tok_mean", "seq_nll", "sem_entropy", "lens_lstar"):
         if k in feats_s:
             part.plots.append((f"{k}: correct vs wrong", histograms_by_label(feats, k)))

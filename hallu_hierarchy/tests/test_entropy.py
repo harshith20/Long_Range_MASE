@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 
 from hallu_hierarchy.entropy.features import (
-    attention_features, cluster_by_entailment, content_slice, lens_features, semantic_entropy,
-    sequence_nll, token_features, unique_answers,
+    attention_features, cluster_by_entailment, content_slice, lens_features, sample_logliks,
+    semantic_entropy, semantic_entropy_weighted, sequence_nll, token_features, unique_answers,
 )
 from hallu_hierarchy.eval.metrics import auroc, spearman_matrix, vif_from_corr
 
@@ -68,6 +68,18 @@ def test_semantic_entropy():
     assert k == 2 and per == [0, 0, 1, 1] and h == pytest.approx(math.log(2))
     h, k, _ = semantic_entropy([-1, -1], [])                            # all abstain
     assert h == 0.0 and k == 1
+
+
+def test_semantic_entropy_weighted():
+    # equal likelihoods -> same as the discrete entropy
+    assert semantic_entropy_weighted([0, 0, 1, 1], [-1.0] * 4) == pytest.approx(math.log(2))
+    assert semantic_entropy_weighted([0, 0, 0], [-0.5, -2.0, -1.0]) == 0.0
+    # a likely cluster dominates: p = (e^-0.1, e^-5) normalized
+    pa, pb = math.exp(-0.1), math.exp(-5.0)
+    pa, pb = pa / (pa + pb), pb / (pa + pb)
+    assert semantic_entropy_weighted([0, 1], [-0.1, -5.0]) == pytest.approx(-(pa * math.log(pa) + pb * math.log(pb)))
+    assert math.isnan(semantic_entropy_weighted([0], [float("nan")]))
+    assert sample_logliks([{"token_logprob": [-1.0, -3.0, -9.0], "ends_with_eos": True}]) == [-2.0]
 
 
 def test_lens_and_attention_features():
@@ -152,7 +164,8 @@ def test_stage_end_to_end(tmp_path, monkeypatch):
     feats = [json.loads(l) for l in (out / "features.jsonl").read_text().splitlines()]
     assert len(feats) == 12 and (out / "features.csv").exists() and (out / "clusters.jsonl").exists()
     f0, f2 = feats[0], feats[2]                     # correct (all "Paris") vs wrong (varied answers)
-    assert f0["sem_entropy"] == 0.0 and f0["sem_n_clusters"] == 1
+    assert f0["sem_entropy"] == 0.0 and f0["sem_n_clusters"] == 1 and f0["sem_entropy_w"] == 0.0
+    assert f2["sem_entropy_w"] > 0.5
     assert f2["sem_entropy"] > 1.0 and f2["abstain_frac"] == 0.1
     assert f0["tok_mean"] == pytest.approx(0.2) and f0["fold"] == 0
     assert f0["lens_lstar"] == 30.0 and math.isnan(feats[1]["attn_mean_18"])
@@ -165,6 +178,7 @@ def test_stage_end_to_end(tmp_path, monkeypatch):
     assert "✅ no NaN/inf (attention NaN only where the subject was not found: 1)" in text
     assert "entropy levels: Spearman correlation | VIF" in text
     assert "✅ NLI sanity: same answer entails, different city does not" in text
+    assert "semantic entropy variants (AUROC wrong vs correct): discrete 1.000 | probability-weighted" in text
 
     # resume: rerun uses the NLI checkpoints (no new pairs)
     monkeypatch.setattr(nli, "NLI", lambda *a, **k: (_ for _ in ()).throw(AssertionError("NLI reloaded")))
@@ -178,3 +192,37 @@ def test_stage_refuses_labels_without_folds(tmp_path, monkeypatch):
     cfg = _fixture(tmp_path, with_folds=False)
     with pytest.raises(RuntimeError, match="pre-M1.6 labels"):
         stage.run(cfg, None)
+
+
+def test_nli_falls_back_to_fp32_on_autocast_error(monkeypatch):
+    """Kernel v9 crashed inside DeBERTa with fp16; the wrapper must fall back to fp32 and continue."""
+    torch = pytest.importorskip("torch")
+    from hallu_hierarchy.entropy.nli import NLI
+
+    calls = []
+
+    def fake_forward(self, enc, autocast):                 # stands in for the model under autocast
+        calls.append(autocast)
+        if autocast:
+            raise RuntimeError("expected scalar type Float but found Half")
+        return torch.tensor([[0.0, 0.0, 5.0]])            # entailment
+
+    monkeypatch.setattr(NLI, "_forward", fake_forward)
+    nli = object.__new__(NLI)
+    nli.torch, nli.use_autocast, nli.switched_to_fp32, nli.fallback_reason = torch, True, False, None
+    out = nli._logits({})
+    assert out.argmax(-1).item() == 2 and nli.switched_to_fp32 and not nli.use_autocast
+    assert "Float but found Half" in nli.fallback_reason and calls == [True, False]
+    nli._logits({})                                        # later batches: fp32 only, no retry
+    assert calls == [True, False, False]
+
+
+def test_nli_falls_back_on_nonfinite(monkeypatch):
+    torch = pytest.importorskip("torch")
+    from hallu_hierarchy.entropy.nli import NLI
+
+    monkeypatch.setattr(NLI, "_forward", lambda self, enc, autocast:
+                        torch.tensor([[float("nan"), 0.0, 0.0]]) if autocast else torch.tensor([[3.0, 0.0, 0.0]]))
+    nli = object.__new__(NLI)
+    nli.torch, nli.use_autocast, nli.switched_to_fp32, nli.fallback_reason = torch, True, False, None
+    assert nli._logits({}).argmax(-1).item() == 0 and nli.fallback_reason == "non-finite logits"
