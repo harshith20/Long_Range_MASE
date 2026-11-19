@@ -11,3 +11,5 @@ One folder per experiment (CLAUDE.md §13). Raw reports: `../reports/`.
 | [E05](E05_m1-6b_correctness/) | 2026-11-18 | Religion head words; can H5 be tested within relation? | WARN (capital of refusals); 14.9% correct; only 5/16 relations usable, all closed-set |
 | [E06](E06_open-set_label_audit/) | 2026-11-18 | Are open-set "wrong" labels really wrong? (50 audited) | ~2% matching misses; 2 missed refusals; many ambiguous short titles |
 | [E07](E07_m1-6c_folds_refusals/) | 2026-11-18 | Labels with 5-fold CV + "not specified" refusals | WARN (capital of); 13/16 relations now usable; abstain 6.6% |
+| [E08](E08_subject_states/) | 2026-11-18 | Subject-token hidden states for H4 | PASS; 14,264/14,267 subjects found; 0.057 s/question |
+| [E09](E09_m1-6_labels_regenerated/) | 2026-11-19 | Regenerate final labels (with folds) from the generations | WARN (capital of); identical to E07 |

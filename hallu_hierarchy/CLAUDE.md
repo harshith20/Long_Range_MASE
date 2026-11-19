@@ -32,7 +32,16 @@ This folder is a self-contained research project inside a larger repo. Work only
   - **Index 0 is the embedding layer** (HF `hidden_states[0]`), not a transformer block.
   - **M2 must check whether index 36 already has the final layer norm applied** (HF may norm the last entry).
     `generation/generate.py` `logit_lens` already *assumes* it is normed — verify before trusting layer-wise features.
-- **Next (in order):** M2 on a 200-question subset → M2 on all → TriviaQA generation + EntityQuestions pilot → M3.
+- **Labels regenerated** (E09, kernel v8, commit 8992b47): identical to E07. Final labels with folds are in the
+  output of kernel v6 and v8.
+- **Where the data lives (Kaggle):** saving an output as a *new version* of a dataset **replaces** its files.
+  - `hallu-hierarchy-m-1-5` v3 (latest) = generations + data + pre-M1.6 labels (= v1). v2 = subject states only.
+  - `hallu-hierarchy-subject-states` = subject states (uploaded by the user, 2026-11-19).
+  - Labels with folds: kernel v8 output; to be saved as its own dataset.
+  - `kernel-metadata.json` attaches only `hallu-hierarchy-m-1-5` so far.
+- **Next (in order):** save labels as a dataset → attach subject-states + labels datasets in `kernel-metadata.json`
+  and make `discover_kaggle_inputs` recognise `subject_states` → M2 on a 200-question subset → M2 on all →
+  TriviaQA generation + EntityQuestions pilot → M3.
 
 ## 1. What this project is
 
