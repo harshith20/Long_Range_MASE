@@ -15,3 +15,4 @@ One folder per experiment (CLAUDE.md §13). Raw reports: `../reports/`.
 | [E09](E09_m1-6_labels_regenerated/) | 2026-11-19 | Regenerate final labels (with folds) from the generations | WARN (capital of); identical to E07 |
 | [E10](E10_m2_prep_lens-check_dry-run/) | 2026-11-19 | Is hidden-state index 36 final-normed? Does M2 run end to end? (local) | Yes (lens = real output, 99.77% top-1); dry run passes |
 | [E11](E11_m2_subset200/) | 2026-11-19 | M2 features on 200 questions (real NLI) | WARN (capital of, fp32 fallback); SE AUROC 0.876; levels redundant; subject attention strong |
+| [E12](E12_m2_full/) | 2026-11-19 | M2 features on all 14,267 questions | WARN (capital of); within-rel AUROC tok_max 0.797, SE 0.781 (pooled ~0.90); subject attention ≈0.68 within-rel |
