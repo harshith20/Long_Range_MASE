@@ -14,3 +14,4 @@ One folder per experiment (CLAUDE.md §13). Raw reports: `../reports/`.
 | [E08](E08_subject_states/) | 2026-11-18 | Subject-token hidden states for H4 | PASS; 14,264/14,267 subjects found; 0.057 s/question |
 | [E09](E09_m1-6_labels_regenerated/) | 2026-11-19 | Regenerate final labels (with folds) from the generations | WARN (capital of); identical to E07 |
 | [E10](E10_m2_prep_lens-check_dry-run/) | 2026-11-19 | Is hidden-state index 36 final-normed? Does M2 run end to end? (local) | Yes (lens = real output, 99.77% top-1); dry run passes |
+| [E11](E11_m2_subset200/) | 2026-11-19 | M2 features on 200 questions (real NLI) | WARN (capital of, fp32 fallback); SE AUROC 0.876; levels redundant; subject attention strong |
