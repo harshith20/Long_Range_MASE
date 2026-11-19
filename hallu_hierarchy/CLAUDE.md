@@ -25,9 +25,14 @@ This folder is a self-contained research project inside a larger repo. Work only
   (6.6%, incl. "not specified") | partial 86. 5-fold subject-grouped folds in the labels; 13/16 relations usable
   within-relation (7/9 open-set). Labels are final for M2/M3. Note: the labels with folds exist only in the
   correctness output of kernel v6 — later runs either rerun `correctness` first (10 s) or attach that output.
-- **Subject-state stage** code written (`generation/subject_states.py`), not yet run.
-- **Next (in order):** subject-state run (H4, GPU) → M2 on a 200-question subset → M2 on all → TriviaQA
-  generation + EntityQuestions pilot → M3.
+- **Subject-state stage done** (commit 2100edc, run 2026-11-18, STATUS ✅ PASS): 14,267/14,267 questions,
+  143/143 checkpoints, 0.057 s/question (~15 min); subject found 14,264/14,267 (3 missing); prompts and
+  subject positions identical to generation; last-prompt-token state matches generation (max rel. diff 0.0019).
+  States `[14267, 10, 2048]` fp16 at hidden-state indices `[0, 4, …, 32, 36]`.
+  - **Index 0 is the embedding layer** (HF `hidden_states[0]`), not a transformer block.
+  - **M2 must check whether index 36 already has the final layer norm applied** (HF may norm the last entry).
+    `generation/generate.py` `logit_lens` already *assumes* it is normed — verify before trusting layer-wise features.
+- **Next (in order):** M2 on a 200-question subset → M2 on all → TriviaQA generation + EntityQuestions pilot → M3.
 
 ## 1. What this project is
 
