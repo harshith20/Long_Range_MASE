@@ -21,9 +21,15 @@ set -euo pipefail
 
 HH="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # hallu_hierarchy/
 REPO="$(git -C "$HH" rev-parse --show-toplevel)"
-KAGGLE="$HH/.venv/bin/kaggle"
-PY="$HH/.venv/bin/python"
+# venv layout: .venv/bin on Linux/macOS, .venv/Scripts on Windows (Git Bash finds kaggle.exe as kaggle).
+VENV_BIN="$HH/.venv/bin"
+[[ -d "$VENV_BIN" ]] || VENV_BIN="$HH/.venv/Scripts"
+KAGGLE="$VENV_BIN/kaggle"
+PY="$VENV_BIN/python"
 CONF="$HH/configs/kaggle_run.json"
+# Windows: Python's default encoding is cp1252 (the notebook and configs are UTF-8) and its stdout
+# ends lines with CRLF. UTF-8 mode fixes the first; `| tr -d '\r'` on captured Python output the second.
+export PYTHONUTF8=1
 
 die()  { echo "kaggle_run: REFUSED: $*" >&2; exit 2; }
 info() { echo "kaggle_run: $*"; }
@@ -79,6 +85,7 @@ print(",".join(stages), conf["accelerator"], conf["default_config"], conf["kerne
       conf["notebook"], conf["poll_seconds"], wait)
 PYEOF
 )" || die "$GUARD_OUT"
+GUARD_OUT="$(tr -d '\r' <<<"$GUARD_OUT")"
 read -r STAGES ACCEL DEFAULT_CONFIG META_REL NB_REL POLL CONF_WAIT <<<"$GUARD_OUT"
 CONFIG="${CONFIG:-$DEFAULT_CONFIG}"
 MAX_WAIT="${MAX_WAIT:-$CONF_WAIT}"
@@ -88,7 +95,7 @@ RUN_NAME="$(sed -n 's/^run_name:[[:space:]]*\([^[:space:]#]*\).*/\1/p' "$HH/$CON
 
 # ------------------------------------------------------------------ kernel metadata
 META="$HH/$META_REL"
-KERNEL="$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$META")"
+KERNEL="$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$META" | tr -d '\r')"
 if grep -q "REPLACE_ME" "$META"; then
   die "kaggle/kernel-metadata.json still has REPLACE_ME placeholders (kernel slug / outputs dataset)"
 fi
