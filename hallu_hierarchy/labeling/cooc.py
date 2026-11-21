@@ -15,8 +15,6 @@ from __future__ import annotations
 from typing import Any
 
 from ..correctness.matching import span_in, strip_head_words
-from ..data.normalize import normalize_answer
-from .wiki import base_title
 
 
 def answer_candidates(pred_norm: str, head_words: tuple[str, ...] = ()) -> list[str]:
@@ -29,20 +27,22 @@ def any_on(text: str, cands: list[str]) -> bool:
     return bool(text) and any(span_in(c, text) for c in cands)
 
 
-def answer_status(pred_norm: str, subject: str | None, wiki_title: str | None, max_words: int = 6) -> str:
+SENTENCE_WORDS = frozenset({"is", "was", "are", "were", "has", "had", "have", "not", "no", "none", "known",
+                            "unknown", "born", "died", "does", "did", "unspecified", "specified"})
+
+
+def answer_status(pred_norm: str, max_words: int = 12) -> str:
     """'ok' | 'empty' | 'sentence'.
 
-    'sentence': the answer restates the subject ("Remco Campert has no known father") or is long.
-    These are mostly refusals the pattern list missed; matching them on the subject page would
+    'sentence': a clause ("remco campert has no known father", "paris was not born in any city") or very
+    long. These are mostly refusals the pattern list missed; matching them on the subject page would
     find the subject's own name and call them AH, so they are left unscored and listed instead.
+    Long names ("thomas howard 3rd duke of norfolk") stay 'ok': they contain no sentence words.
     """
     if len(pred_norm) < 2:
         return "empty"
     words = pred_norm.split()
-    if len(words) >= max_words:
-        return "sentence"
-    names = {normalize_answer(s) for s in (subject, wiki_title and base_title(wiki_title)) if s}
-    if len(words) >= 3 and any(n and span_in(n, pred_norm) for n in names):
+    if len(words) >= max_words or (len(words) >= 3 and SENTENCE_WORDS & set(words)):
         return "sentence"
     return "ok"
 

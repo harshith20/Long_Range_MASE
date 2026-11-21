@@ -131,7 +131,7 @@ def score_rows(rows: list[dict[str, Any]], titles: dict[str, str], client: WikiC
         r["page_is_disambig"] = bool(pg.get("disambig"))
         pred_norm = r.get("pred_norm") or normalize_answer(r["pred"])
         r["answer_norm"] = pred_norm
-        status = answer_status(pred_norm, r.get("subject"), title)
+        status = answer_status(pred_norm)
         r["m3_status"] = status if r["page_found"] else "no_page"
         cands = answer_candidates(pred_norm, head_words)
         gold = [normalize_answer(a) for a in r["aliases"]]

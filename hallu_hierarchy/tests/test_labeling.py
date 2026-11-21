@@ -56,12 +56,13 @@ def test_base_title():
 def test_answer_candidates_and_status():
     assert answer_candidates("action film", HW) == ["action film", "action"]
     assert answer_candidates("x", HW) == []
-    assert answer_status("brian de palma", "Carrie", "Carrie (1976 film)") == "ok"
-    assert answer_status("remco campert has no known father", "Remco Campert", "Remco Campert") == "sentence"
-    assert answer_status("hun remains unspecified", "Hun", "Hun, Libya") == "sentence"
-    assert answer_status("a b c d e f", None, None) == "sentence"
-    assert answer_status("", None, None) == "empty"
-    assert answer_status("carrie white", "Carrie", "Carrie (1976 film)") == "ok"   # 2 words: a name, not a sentence
+    assert answer_status("brian de palma") == "ok"
+    assert answer_status("remco campert has no known father") == "sentence"
+    assert answer_status("hun remains unspecified") == "sentence"
+    assert answer_status("paris was not born in any city") == "sentence"
+    assert answer_status("thomas howard 3rd duke of norfolk") == "ok"        # long name, no sentence words
+    assert answer_status("prince abdulaziz bin thabit bin abdul rahman bin faisal bin abdulaziz al saud") == "sentence"  # >= 12 words
+    assert answer_status("") == "empty"
 
 
 def test_rules_and_final_label():
