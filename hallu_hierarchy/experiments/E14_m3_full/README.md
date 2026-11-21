@@ -29,7 +29,7 @@ composer) only 19–29 each (1–3% of their wrong answers), sport 8.
 capital of, religion (closed) and place of birth, occupation, father (open).
 
 ## Insights
-- **Proxy confirmed at scale:** 97% gold-on-page in every relation (religion lowest at 86%), so UH is reliable.
+- **Proxy confirmed at scale:** gold on page 97% overall, 95–100% in every relation except religion (86%), so UH is reliable.
 - **AH is rare on PopQA × Qwen-3B (8.6% of wrong) and depends on the relation:** 26–62% for capital-type relations,
   genre and religion, 13–21% for family / birthplace / occupation, 1–3% for creators of works. For long-tail films
   and books the model guesses a famous name that has nothing to do with the work, which is UH by definition.
