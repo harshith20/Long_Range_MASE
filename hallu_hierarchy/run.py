@@ -23,6 +23,7 @@ STAGES = {
     "subject_states": "hallu_hierarchy.generation.subject_states",
     "correctness": "hallu_hierarchy.correctness.stage",
     "entropy": "hallu_hierarchy.entropy.stage",
+    "labeling": "hallu_hierarchy.labeling.stage",
 }
 ALIASES = {"generate": "generation"}
 

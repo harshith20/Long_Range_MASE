@@ -1,1 +1,1 @@
-"""AH/UH assignment via subject-answer co-occurrence (M3). Correctness lives in correctness/."""
+"""M3: AH / UH labels for wrong answers from subject–answer co-occurrence (CLAUDE.md §3)."""
