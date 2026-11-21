@@ -60,7 +60,9 @@ This folder is a self-contained research project inside a larger repo. Work only
   Within-relation AH vs FA (≥ 30 each) possible for genre, capital, capital of, religion, place of birth,
   occupation, father. Creators of works (director …) have 1–3% AH. M3 labels: `outputs/<run>/labeling/labels_m3.jsonl`
   (`label_m3`, plus `label_m3_by_rule`, `disambig_exists`, `answer_on_disambig` for switching rules).
-- **Next (in order):** user decides the ambiguity rule (§9) → user fills `overrides/m3_manual_popqa_qwen2.5-3b.csv`
+- **Ambiguity rule decided:** `answer_on_disambig` → final labels FA 2,128 · AH 740 (closed 415, open 325) · UH 10,094 ·
+  ambiguous 207 (E14 update). H9 added (fact frequency, M6).
+- **Next (in order):** user fills `overrides/m3_manual_popqa_qwen2.5-3b.csv`
   (`manual_label`) → E15 offline rerun with agreement → M3 done → M4.
   TriviaQA generation + EntityQuestions pilot can run on Kaggle in parallel (GPU, separate session).
 
@@ -93,9 +95,10 @@ Thesis work: detect LLM hallucinations with **semantic entropy probes (SEPs)** a
 | **H6** | Optional | AH answers change more under paraphrasing than FA answers | 3 paraphrases per question; answer agreement per class (analysis only, not an edge feature) |
 | **H7** | Optional | Many errors on ambiguous subjects are not hallucinations | Regenerate flagged subset with full Wikipedia titles; compare accuracy |
 | **H8** | Recommended | The detector transfers across datasets | Train PopQA → test TriviaQA, and the reverse |
+| **H9** | Recommended | Errors come from rare facts: accuracy rises with how often the subject and the *true* answer co-occur in the training data (fact frequency), and among wrong answers the AH share depends on it (long-tail facts are lost under limited capacity) | OLMo (M6): infini-gram counts of subject + gold answer in its pretraining corpus; accuracy and FA/AH/UH shares per frequency bin, within relation. Qwen: `s_pop` and Wikipedia counts as weaker proxies (analysis only, never a feature) |
 
 Thesis story: does it work (H1, H1b) → where it fails (H2) → can the failure be fixed (H3) →
-why it fails (H4, H6) → are the results trustworthy (H5, H7, H8).
+why it fails (H4, H6, H9) → are the results trustworthy (H5, H7, H8).
 
 A clearly documented negative result on H2 (or H3) is acceptable. Do not tune things to hide it.
 
@@ -357,7 +360,9 @@ Plain-text tables and unicode bars only. `DASHBOARD.png` combines the stage's ke
 ## 9. Open decisions (defaults in place; revisit with real data)
 
 - **AH/UH co-occurrence cutoff:** configurable; report 2–3 cutoffs plus manual-check agreement.
-- **Ambiguity check method on AH rows:** disambiguation-page lookup vs Wikidata homonym check — decide at M3.
+- **Ambiguity check method on AH rows:** decided at M3 (user, 2026-11-21, after E14): `answer_on_disambig` — an AH row is
+  `ambiguous_confirmed` only if the model's answer appears on the subject's disambiguation page. `disambig_exists`
+  (any disambiguation page) removed 46% of AH incl. unambiguous subjects; it is kept as a sensitivity analysis.
 - **TriviaQA subject location:** entity-page titles by default; if too many questions have no subject found, consider an NER or LLM-based extractor.
 - **Relation group membership:** occupation is borderline (open vs closed); keep configurable and report both.
 

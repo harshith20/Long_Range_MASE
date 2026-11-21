@@ -139,7 +139,8 @@ def test_stage_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     _write_inputs(tmp_path)
     cfg = {"run_name": "t_run", "seed": 0, "output_root": str(tmp_path), "data": {"dataset": "popqa"},
            "model": {"id": "Qwen/Qwen2.5-3B-Instruct"},
-           "labeling": {"request_interval_s": 0, "count_cutoffs": [1, 5], "manual_check_n": 4}}
+           "labeling": {"request_interval_s": 0, "count_cutoffs": [1, 5], "manual_check_n": 4,
+                         "ambiguity_rule": "disambig_exists"}}
     rep = Report(cfg, ["labeling"])
     part = rep.stage("labeling")
     stage.run(cfg, part)

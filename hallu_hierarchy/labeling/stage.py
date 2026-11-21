@@ -46,7 +46,7 @@ DEFAULTS: dict[str, Any] = {
     "linked_counts": True,        # cooc_count via `linksto:` search (one request per wrong answer)
     "count_cutoffs": [1, 3, 10],  # AH if cooc_count >= k
     "primary_rule": "page",       # rule for `label_m3` until the manual check decides
-    "ambiguity_rule": "disambig_exists",   # or answer_on_disambig (CLAUDE.md §9 open decision)
+    "ambiguity_rule": "answer_on_disambig",   # decided after E14 (CLAUDE.md §9); or disambig_exists
     "count_sample": None,         # wrong rows that get counts (+ gold count); null = all. Search is rate-limited
     "count_correct": True,        # counts for correct answers too (FA reference; half the sample size)
     "request_interval_s": 0.1,

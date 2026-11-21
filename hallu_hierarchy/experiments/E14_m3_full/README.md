@@ -42,11 +42,16 @@ capital of, religion (closed) and place of birth, occupation, father (open).
   answers ("Ronan Farrow's father is Woody Allen"); too few to matter.
 
 ## Next steps
-1. **User decision (§9): ambiguity rule.** Recommendation: `answer_on_disambig` (740 AH), with `disambig_exists`
-   (510 AH) as a sensitivity analysis. Offline rerun after the change.
+1. ~~User decision (§9): ambiguity rule~~ → **decided: `answer_on_disambig`** (see Update below).
 2. **E15: manual check.** `overrides/m3_manual_popqa_qwen2.5-3b.csv` holds 100 rows, ~16 per cell
    (AH / UH / ambiguous × open / closed). The user fills `manual_label` (AH / UH / not_wrong / ambiguous /
    unclear), then an offline rerun reports agreement and AH precision/recall of the page rule.
 3. Optional: add the clearest sentence patterns ("has no known", "was not") to `refusal_patterns.yaml` in the
    next correctness rerun.
 4. Then M4 (probes); TriviaQA / EntityQuestions on Kaggle for more AH in open-set relations.
+
+## Update — ambiguity rule decided (2026-11-21, offline rerun from the cache)
+User decision (§9): `answer_on_disambig`; `disambig_exists` stays as a sensitivity analysis. Report:
+[`reports/2026-11-21_qwen2.5-3b_popqa_full_labeling_local-E14b.md`](../../reports/2026-11-21_qwen2.5-3b_popqa_full_labeling_local-E14b.md) (PASS).
+**Final M3 labels: FA 2,128 · AH 740 (closed 415, open 325) · UH 10,094 · ambiguous_confirmed 207 · unscored 72.**
+Also added **H9** (fact frequency / long tail, tested with OLMo + infini-gram in M6).
