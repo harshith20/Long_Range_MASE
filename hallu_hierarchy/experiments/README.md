@@ -17,3 +17,4 @@ One folder per experiment (CLAUDE.md §13). Raw reports: `../reports/`.
 | [E11](E11_m2_subset200/) | 2026-11-19 | M2 features on 200 questions (real NLI) | WARN (capital of, fp32 fallback); SE AUROC 0.876; levels redundant; subject attention strong |
 | [E12](E12_m2_full/) | 2026-11-19 | M2 features on all 14,267 questions | WARN (capital of); within-rel AUROC tok_max 0.797, SE 0.781 (pooled ~0.90); subject attention ≈0.68 within-rel |
 | [E13](E13_m3_dev200/) | 2026-11-21 | M3 dev: does the Wikipedia proxy work? (200 wrong + 50 correct, local) | WARN (AH < 30); gold on page 96.5%; AH 8.5% (page rule), almost all closed-set; `disambig_exists` too blunt |
+| [E14](E14_m3_full/) | 2026-11-21 | M3 on all 11,113 wrong answers (page rule, ambiguity check, local) | PASS; gold on page 97%; AH 947 before / 740 (`answer_on_disambig`) / 510 (`disambig_exists`); 7 relations allow within-relation AH vs FA |

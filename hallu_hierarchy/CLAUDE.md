@@ -55,7 +55,13 @@ This folder is a self-contained research project inside a larger repo. Work only
   `disambig_exists` flags 61% of subjects and removes genuine AH → recommended `answer_on_disambig` (user decision, §9).
   Wikipedia search is rate-limited (~10 s/request) → counts only on samples; the full run uses the page rule.
   Threat: AH vs FA on PopQA ≈ closed vs open relations → TriviaQA / EntityQuestions more important.
-- **Next (in order):** M3 dev (E13) → M3 full + ambiguity check (E14) → manual check of ~100 (E15) → M4.
+- **E14** (all rows, page rule, commit 106722b, PASS): gold on page 97%; AH 947 before the ambiguity check →
+  740 (`answer_on_disambig`) / 510 (`disambig_exists`, current default); FA 2,128, UH 10,094, unscored 72.
+  Within-relation AH vs FA (≥ 30 each) possible for genre, capital, capital of, religion, place of birth,
+  occupation, father. Creators of works (director …) have 1–3% AH. M3 labels: `outputs/<run>/labeling/labels_m3.jsonl`
+  (`label_m3`, plus `label_m3_by_rule`, `disambig_exists`, `answer_on_disambig` for switching rules).
+- **Next (in order):** user decides the ambiguity rule (§9) → user fills `overrides/m3_manual_popqa_qwen2.5-3b.csv`
+  (`manual_label`) → E15 offline rerun with agreement → M3 done → M4.
   TriviaQA generation + EntityQuestions pilot can run on Kaggle in parallel (GPU, separate session).
 
 ## 1. What this project is
