@@ -47,8 +47,8 @@ DEFAULTS: dict[str, Any] = {
     "count_cutoffs": [1, 3, 10],  # AH if cooc_count >= k
     "primary_rule": "page",       # rule for `label_m3` until the manual check decides
     "ambiguity_rule": "disambig_exists",   # or answer_on_disambig (CLAUDE.md §9 open decision)
-    "gold_count_sample": 1000,    # wrong rows that also get gold_count (all rows in a subset run)
-    "count_correct": True,        # cooc_count for correct answers too (FA reference)
+    "count_sample": None,         # wrong rows that get counts (+ gold count); null = all. Search is rate-limited
+    "count_correct": True,        # counts for correct answers too (FA reference; half the sample size)
     "request_interval_s": 0.1,
     "cache_dir": None,            # default <output_root>/wiki_cache
     "head_words": "configs/head_words.yaml",
@@ -64,6 +64,11 @@ WIKI_URL = "https://en.wikipedia.org/wiki/"
 
 def _cfg(cfg: dict[str, Any]) -> dict[str, Any]:
     return {**DEFAULTS, **(cfg.get("labeling") or {})}
+
+
+def active_rules(lc: dict[str, Any]) -> list[str]:
+    """'page' always; the count rules only when counts are computed."""
+    return rule_names(lc["count_cutoffs"] if lc["linked_counts"] else [])
 
 
 def manual_path(cfg: dict[str, Any]) -> Path:
@@ -87,8 +92,9 @@ def select_rows(labels: list[dict[str, Any]], subset: dict[str, int] | None, see
 def stratified_sample(rows: list[dict[str, Any]], n: int, seed: int) -> list[dict[str, Any]]:
     """~n scored wrong rows, balanced over (AH/UH under the primary rule) x (open/closed)."""
     cells: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
-    for r in rows:
-        if r["label_m3"] in ("AH", "UH", "ambiguous_confirmed"):
+    counted = any(r.get("cooc_count") is not None and r["label"] == "wrong" for r in rows)
+    for r in rows:  # with sampled counts, draw from counted rows so every rule can be checked
+        if r["label_m3"] in ("AH", "UH", "ambiguous_confirmed") and (not counted or r.get("cooc_count") is not None):
             cells[(r["label_m3"], r["relation_group"] or "-")].append(r)
     rng = random.Random(seed)
     keys = sorted(cells)
@@ -140,20 +146,27 @@ def score_rows(rows: list[dict[str, Any]], titles: dict[str, str], client: WikiC
     corr_ok = [r for r in scored if r["label"] == "correct" and r["m3_status"] == "ok"]
     t1 = time.perf_counter()
     if lc["linked_counts"]:
-        todo = wrong_ok + (corr_ok if lc["count_correct"] else [])
+        # Search is rate-limited for anonymous clients (~1 request / 3 s), so counts run on a seeded
+        # sample of wrong rows (null = all) plus half as many correct rows; the gold count goes on
+        # the same wrong rows. Rows outside the sample keep cooc_count = None ('unscored' for count rules).
+        n_s = lc["count_sample"]
+        rng = random.Random(seed)
+        w_s = wrong_ok if n_s is None else rng.sample(wrong_ok, min(int(n_s), len(wrong_ok)))
+        c_s = [] if not lc["count_correct"] else (
+            corr_ok if n_s is None else rng.sample(corr_ok, min(int(n_s) // 2, len(corr_ok))))
+        todo = w_s + c_s
         log(f"linked counts for {len(todo)} answers (one search each, cached)")
         for i, r in enumerate(todo, 1):
             r["linked_hits"] = client.linked_hits(r["answer_norm"], r["wiki_canonical"])
             r["cooc_count"] = r["linked_hits"] + int(bool(r["cooc_page"]))
-            if i % 500 == 0 or i == len(todo):
+            if i % 100 == 0 or i == len(todo):
                 log(f"  counts {i}/{len(todo)} ({client.n_requests} requests so far)")
-        n_gold = len(wrong_ok) if lc["subset"] else min(int(lc["gold_count_sample"]), len(wrong_ok))
-        gold_rows = random.Random(seed).sample(wrong_ok, n_gold)
+        gold_rows = w_s
         log(f"gold counts for {len(gold_rows)} wrong rows (calibration)")
         for i, r in enumerate(gold_rows, 1):
             alias = r["gold_on_page_alias"] or normalize_answer(r["aliases"][0])
             r["gold_count"] = client.linked_hits(alias, r["wiki_canonical"]) + int(bool(r["gold_on_page"]))
-            if i % 500 == 0 or i == len(gold_rows):
+            if i % 100 == 0 or i == len(gold_rows):
                 log(f"  gold counts {i}/{len(gold_rows)}")
     t_counts = time.perf_counter() - t1
 
@@ -170,7 +183,7 @@ def score_rows(rows: list[dict[str, Any]], titles: dict[str, str], client: WikiC
         r["answer_on_disambig"] = any(any_on(t, answer_candidates(r["answer_norm"], head_words)) for t in texts)
     t_dis = time.perf_counter() - t2
 
-    rules = rule_names(lc["count_cutoffs"])
+    rules = active_rules(lc)
     for r in rows:
         r.setdefault("m3_status", "not_scored")
         r["ah"] = {rule: (is_ah(rule, bool(r.get("cooc_page")), r.get("cooc_count"))
@@ -222,7 +235,7 @@ def _quantiles(v: list[int]) -> list[int] | None:
 
 def summarize(rows: list[dict[str, Any]], lc: dict[str, Any], groups: dict[str, str],
               borderline: set[str], stats: dict[str, Any], manual: dict[str, str]) -> dict[str, Any]:
-    rules = rule_names(lc["count_cutoffs"])
+    rules = active_rules(lc)
     wrong = [r for r in rows if r["label"] == "wrong" and not r["exclude_from_training"]]
     wok = [r for r in wrong if r["m3_status"] == "ok"]
     corr = [r for r in rows if r["label"] == "correct" and not r["exclude_from_training"]]
@@ -246,6 +259,14 @@ def summarize(rows: list[dict[str, Any]], lc: dict[str, Any], groups: dict[str, 
         "count_cutoffs": lc["count_cutoffs"], "subset": lc["subset"], **stats,
     }
     s["labels_by_rule"] = {rule: dict(Counter(r["label_m3_by_rule"][rule] for r in rows)) for rule in rules}
+    # page rule vs each count rule on the rows that have counts (same rows, so directly comparable)
+    s["rule_agreement"] = {}
+    for rule in rules[1:]:
+        pairs = [(bool(r["ah"]["page"]), bool(r["ah"][rule])) for r in wok if r["ah"].get(rule) is not None]
+        if pairs:
+            s["rule_agreement"][rule] = {"n": len(pairs), "agree": sum(a == b for a, b in pairs) / len(pairs),
+                                         "page_ah": sum(a for a, _ in pairs) / len(pairs),
+                                         "rule_ah": sum(b for _, b in pairs) / len(pairs)}
     s["ah_before_after"] = {}
     for rule in rules:
         before = sum(1 for r in wok if r["ah"].get(rule))
@@ -317,6 +338,10 @@ def fill_report(part: Any, s: dict[str, Any], lc: dict[str, Any], rows: list[dic
         [rule + (" *" if rule == s["primary_rule"] else ""), *[s["labels_by_rule"][rule].get(c, 0) for c in cols],
          _p(s["labels_by_rule"][rule].get("AH", 0) / max(1, s["labels_by_rule"][rule].get("AH", 0) + s["labels_by_rule"][rule].get("UH", 0)))]
         for rule in rules])
+    if s["rule_agreement"]:
+        part.key.append("page rule vs count rules on the rows with counts (AH share, agreement)")
+        part.key += table([["rule", "n", "AH page", "AH rule", "agree"]] + [
+            [r, v["n"], _p(v["page_ah"]), _p(v["rule_ah"]), _p(v["agree"])] for r, v in s["rule_agreement"].items()])
     part.key.append(f"ambiguity check on wrong rows: disambiguation page {_p(s['disambig_exists'])} | answer on it "
                     f"{_p(s['answer_on_disambig'])} | rule in use: {s['ambiguity_rule']}")
     part.key += table([["AH before → after", "before", "disambig_exists", "answer_on_disambig"]] + [
@@ -352,6 +377,7 @@ def fill_report(part: Any, s: dict[str, Any], lc: dict[str, Any], rows: list[dic
                        f"cooc_page wrong={s['cooc_page_wrong']} correct={s['cooc_page_correct']} page_words q={s['page_words_median']}")
     part.claude.append(f"count_quantiles={cq} n_gold_count={s['n_gold_count']}")
     part.claude.append(f"labels_by_rule={s['labels_by_rule']}")
+    part.claude.append(f"rule_agreement={s['rule_agreement']}")
     part.claude.append(f"ah_before_after={s['ah_before_after']} disambig={s['disambig_exists']} answer_on_disambig={s['answer_on_disambig']}")
     part.claude.append(f"by_group={s['by_group']}")
     part.claude.append(f"rules={rules} primary={s['primary_rule']} ambiguity_rule={s['ambiguity_rule']} manual={s['manual']}")

@@ -37,11 +37,26 @@ This folder is a self-contained research project inside a larger repo. Work only
 - **Where the data lives (Kaggle):** saving an output as a *new version* of a dataset **replaces** its files.
   - `hallu-hierarchy-m-1-5` v3 (latest) = generations + data + pre-M1.6 labels (= v1). v2 = subject states only.
   - `hallu-hierarchy-subject-states` = subject states (uploaded by the user, 2026-11-19).
-  - Labels with folds: kernel v8 output; to be saved as its own dataset.
-  - `kernel-metadata.json` attaches only `hallu-hierarchy-m-1-5` so far.
-- **Next (in order):** save labels as a dataset → attach subject-states + labels datasets in `kernel-metadata.json`
-  and make `discover_kaggle_inputs` recognise `subject_states` → M2 on a 200-question subset → M2 on all →
-  TriviaQA generation + EntityQuestions pilot → M3.
+  - Labels with folds: kernel v8 output (not saved as a dataset; entropy runs regenerate them with
+    `--stages correctness,entropy`, ~10 s).
+  - `kernel-metadata.json` attaches `hallu-hierarchy-m-1-5` and `hallu-hierarchy-subject-states`.
+- **M2 done** (E11 subset, E12 full, kernel v11, STATUS ⚠️ WARN only for `capital of` refusals): within-relation
+  AUROC tok_max 0.797, sem_entropy 0.781, seq_nll 0.766 (pooled ~0.90 → H5 gap 0.11–0.15 for every feature);
+  subject attention ≈0.68 within-relation (flipped); final-layer levels are one dimension (VIF up to 24);
+  discrete SE ≥ weighted SE → SEP target = discrete SE. LR feature set still to be decided before M5.
+- **Local CPU runs (from 2026-11-21):** CPU-only stages (correctness, labeling) can run on the user's machine:
+  `hallu_hierarchy/.venv/Scripts/python.exe -m hallu_hierarchy.run --config configs/qwen3b_popqa_full.yaml --stages <s>`
+  from the repo root. Inputs in `hallu_hierarchy/outputs/qwen2.5-3b_popqa_full/` (gitignored): `data/questions.jsonl`
+  and `generation/generations.jsonl` downloaded from `hallu-hierarchy-m-1-5`; `correctness/labels.jsonl` regenerated
+  locally (identical to kernel v8: 2,128 / 11,114 / 939 / 86, same folds). The report goes to `hallu_hierarchy/outputs/REPORT.md`
+  and is copied to `reports/<date>_<run>_<stages>_local-E<NN>.md`. The .venv now also has numpy, pytest, matplotlib.
+- **M3 in progress** (labeling stage, commit 61bce02). **E13** (200 wrong + 50 correct, local): proxy valid (gold answer
+  on the subject page for 96.5% of wrong rows); AH 8.5% of wrong under the page rule, almost all closed-set (open 2%);
+  `disambig_exists` flags 61% of subjects and removes genuine AH → recommended `answer_on_disambig` (user decision, §9).
+  Wikipedia search is rate-limited (~10 s/request) → counts only on samples; the full run uses the page rule.
+  Threat: AH vs FA on PopQA ≈ closed vs open relations → TriviaQA / EntityQuestions more important.
+- **Next (in order):** M3 dev (E13) → M3 full + ambiguity check (E14) → manual check of ~100 (E15) → M4.
+  TriviaQA generation + EntityQuestions pilot can run on Kaggle in parallel (GPU, separate session).
 
 ## 1. What this project is
 
@@ -322,9 +337,9 @@ Plain-text tables and unicode bars only. `DASHBOARD.png` combines the stage's ke
 ## 8. Build order — one milestone at a time, test before moving on
 
 1. **M1, M1.5, full PopQA generation:** done.
-2. **M1.6:** §3 correctness changes (head-word stripping, `partial`, religion exemption, flag no longer excludes, relation groups in reports). `--stages correctness`. No GPU.
-3. **Subject-state stage** (H4): `--stages subject_states` on all PopQA.
-4. **M2:** `entropy/` all features. Develop and check on a 200-question subset first, then run on all.
+2. **M1.6:** §3 correctness changes (head-word stripping, `partial`, religion exemption, flag no longer excludes, relation groups in reports). `--stages correctness`. No GPU. Done (E04–E07, E09).
+3. **Subject-state stage** (H4): `--stages subject_states` on all PopQA. Done (E08).
+4. **M2:** `entropy/` all features. Develop and check on a 200-question subset first, then run on all. Done (E11, E12).
 5. **TriviaQA generation** (+ subject location, correctness, subject states) — can run in a separate Kaggle session while M3–M5 are developed.
    **EntityQuestions pilot** (200 questions) in the same period; full run only if its correct/wrong mix helps open-set relations.
 6. **M3:** AH/UH labels with the Wikipedia proxy; ambiguity check on AH rows; manual check of ~100.

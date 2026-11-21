@@ -163,3 +163,9 @@ def test_stage_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # rerun: everything from the cache, no API calls
     monkeypatch.setattr(stage.WikiClient.__init__, "__defaults__", (0.1, lambda p: pytest.fail("network used")))
     stage.run(cfg, None)
+
+    # counts off (E14 setting): only the page rule, no search requests
+    cfg["labeling"]["linked_counts"] = False
+    stage.run(cfg, None)
+    rows = {json.loads(l)["qid"]: json.loads(l) for l in open(tmp_path / "t_run" / "labeling" / "labels_m3.jsonl")}
+    assert list(rows["q1"]["label_m3_by_rule"]) == ["page"] and rows["q1"]["cooc_count"] is None
