@@ -3,6 +3,7 @@ torch
 transformers>=4.45,<5
 datasets>=2.18
 numpy
+scikit-learn   # M4 probes (preinstalled on Kaggle)
 pyyaml
 tqdm
 pytest

@@ -39,7 +39,11 @@ This folder is a self-contained research project inside a larger repo. Work only
   - `hallu-hierarchy-subject-states` = subject states (uploaded by the user, 2026-11-19).
   - Labels with folds: kernel v8 output (not saved as a dataset; entropy runs regenerate them with
     `--stages correctness,entropy`, ~10 s).
-  - `kernel-metadata.json` attaches `hallu-hierarchy-m-1-5` and `hallu-hierarchy-subject-states`.
+  - `hallu-hierarchy-entropy-m2` = M2 entropy features (kernel v11 output, `outputs/<run>/entropy/`), uploaded 2026-11-22.
+  - `m3-outputs` = local M3 outputs (`<run>/labeling/labels_m3.jsonl`, also generations + data + labels, no hidden
+    states), uploaded 2026-11-22. It sits one level shallower, so its `generation/generations.jsonl` is found first;
+    `probes` therefore locates `hidden_*.npy` on its own and checks their row order.
+  - `kernel-metadata.json` attaches all four datasets above.
 - **M2 done** (E11 subset, E12 full, kernel v11, STATUS ⚠️ WARN only for `capital of` refusals): within-relation
   AUROC tok_max 0.797, sem_entropy 0.781, seq_nll 0.766 (pooled ~0.90 → H5 gap 0.11–0.15 for every feature);
   subject attention ≈0.68 within-relation (flipped); final-layer levels are one dimension (VIF up to 24);

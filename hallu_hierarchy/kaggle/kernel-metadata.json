@@ -7,7 +7,7 @@
   "enable_gpu": "false",
   "enable_tpu": "false",
   "enable_internet": "true",
-  "dataset_sources": ["harshithswamy20/hallu-hierarchy-m-1-5", "harshithswamy20/hallu-hierarchy-subject-states"],
+  "dataset_sources": ["harshithswamy20/hallu-hierarchy-m-1-5", "harshithswamy20/hallu-hierarchy-subject-states", "harshithswamy20/hallu-hierarchy-entropy-m2", "harshithswamy20/m3-outputs"],
   "competition_sources": [],
   "kernel_sources": [],
   "model_sources": []

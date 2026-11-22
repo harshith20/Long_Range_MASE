@@ -73,6 +73,20 @@ labeling:                   # M3, CLAUDE.md §3 AH vs UH labeling (CPU; internet
   # cache_dir: default <output_root>/wiki_cache (SQLite; reruns need no network)
   manual_check_n: 100
 
+probes:                     # M4, CLAUDE.md §3 Probes (CPU; nested subject-grouped CV, see probes/core.py)
+  positions: [tbg, slt]     # generation-pass positions for the entropy and correctness probes
+  skip_layers: [0]          # hidden-state index 0 = embeddings
+  entropy_targets: [sem_entropy, seq_nll]   # SEP targets (M2 sampled features), binarized per fold
+  binarize: best_split      # SEP split of the training folds; familiarity uses the training median of s_pop
+  correctness_probe: true   # direct correctness probe (baseline)
+  familiarity_probe: true   # H4, subject-token states
+  C_grid: [0.001, 0.01, 0.1, 1.0]
+  inner_frac: 0.2           # training subjects held out for the inner choice of layer / position / C
+  max_iter: 500
+  min_per_class: 30
+  n_boot: 1000              # subject-bootstrap CIs on the detection AUROCs
+  max_within_gap: 0.10
+
 evaluation:                 # CLAUDE.md §3 Metrics
   folds: 5                  # subject-grouped k-fold CV; every question is tested once
 

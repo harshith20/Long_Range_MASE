@@ -75,7 +75,7 @@ def input_run_dirs(cfg: dict[str, Any]) -> list[Path]:
     return dirs
 
 
-STAGE_OUTPUT_DIRS = ("generation", "data", "correctness", "subject_states")
+STAGE_OUTPUT_DIRS = ("generation", "data", "correctness", "subject_states", "entropy", "labeling")
 
 
 def discover_kaggle_inputs(run_name: str, root: Path = KAGGLE_INPUT, max_depth: int = 6) -> list[Path]:
