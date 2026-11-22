@@ -66,8 +66,13 @@ This folder is a self-contained research project inside a larger repo. Work only
   (`label_m3`, plus `label_m3_by_rule`, `disambig_exists`, `answer_on_disambig` for switching rules).
 - **Ambiguity rule decided:** `answer_on_disambig` → final labels FA 2,128 · AH 740 (closed 415, open 325) · UH 10,094 ·
   ambiguous 207 (E14 update). H9 added (fact frequency, M6).
-- **Next (in order):** user fills `overrides/m3_manual_popqa_qwen2.5-3b.csv`
-  (`manual_label`) → E15 offline rerun with agreement → M3 done → M4.
+- **M4 probes done** (E16, kernel v12, commit 4b57a09, WARN only for `capital of` + seq_nll H5 gap; 106 min CPU):
+  within-relation AUROC correct vs wrong: SEP sem_entropy (SLT@28) **0.827** > sampled SE 0.781 > … (H1b holds);
+  correctness probe 0.893 (baseline to beat in M5); FA vs AH ≈ 0.65 for entropy (open-set 0.54) but 0.80 for the
+  correctness probe (H3 hint); familiarity FA 0.578 = AH 0.579 > UH 0.476 (H4 supported). Out-of-fold scores for M5:
+  `outputs/<run>/probes/oof_scores.jsonl` (kernel v12 output; save it as a dataset before M5 runs).
+- **Next (in order):** user fills `overrides/m3_manual_popqa_qwen2.5-3b.csv` (`manual_label`) → E15 offline rerun
+  with agreement → M3 done. Then M5 (classifier, ablations, baselines) on the probe OOF scores.
   TriviaQA generation + EntityQuestions pilot can run on Kaggle in parallel (GPU, separate session).
 
 ## 1. What this project is

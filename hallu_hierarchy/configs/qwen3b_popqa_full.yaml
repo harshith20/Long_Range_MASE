@@ -2,7 +2,7 @@
 # questions; if the session dies, rerun the same line and it resumes.
 run_name: qwen2.5-3b_popqa_full
 seed: 0
-milestone: M1.6   # shown in REPORT.md
+milestone: M4     # shown in REPORT.md
 # output_root: defaults to /kaggle/working/outputs on Kaggle, hallu_hierarchy/outputs locally
 
 model:
