@@ -25,6 +25,7 @@ STAGES = {
     "entropy": "hallu_hierarchy.entropy.stage",
     "labeling": "hallu_hierarchy.labeling.stage",
     "probes": "hallu_hierarchy.probes.stage",
+    "classifier": "hallu_hierarchy.classifier.stage",
 }
 ALIASES = {"generate": "generation"}
 

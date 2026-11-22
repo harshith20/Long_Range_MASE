@@ -2,7 +2,7 @@
 # questions; if the session dies, rerun the same line and it resumes.
 run_name: qwen2.5-3b_popqa_full
 seed: 0
-milestone: M4     # shown in REPORT.md
+milestone: M5     # shown in REPORT.md
 # output_root: defaults to /kaggle/working/outputs on Kaggle, hallu_hierarchy/outputs locally
 
 model:
@@ -85,6 +85,15 @@ probes:                     # M4, CLAUDE.md §3 Probes (CPU; nested subject-grou
   max_iter: 500
   min_per_class: 30
   n_boot: 1000              # subject-bootstrap CIs on the detection AUROCs
+  max_within_gap: 0.10
+
+classifier:                 # M5, CLAUDE.md §3 Classifier (CPU; inputs: labels_m3, entropy features, probe OOF scores)
+  C_grid: [0.01, 0.1, 1.0, 10.0]   # logistic regression, chosen on an inner subject split
+  inner_frac: 0.2
+  gb: {max_iter: 300, learning_rate: 0.05, max_leaf_nodes: 15, l2_regularization: 1.0}   # fixed, not tuned
+  main_set: E+L+A+F         # E entropy (probes replace sampled SE) + L logit lens + A attention + F familiarity
+  min_per_class: 30
+  n_boot: 1000
   max_within_gap: 0.10
 
 evaluation:                 # CLAUDE.md §3 Metrics

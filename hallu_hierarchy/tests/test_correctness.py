@@ -164,7 +164,7 @@ def test_parse_stages():
     assert parse_stages(["data", "generate"]) == ["data", "generation"]
     assert parse_stages(None) is None
     with pytest.raises(SystemExit):
-        parse_stages(["classifier"])  # not implemented yet (M5)
+        parse_stages(["eval"])  # not a stage (yet)
 
 
 def _gen(qid, subject, pred, aliases, samples):

@@ -70,9 +70,19 @@ This folder is a self-contained research project inside a larger repo. Work only
   within-relation AUROC correct vs wrong: SEP sem_entropy (SLT@28) **0.827** > sampled SE 0.781 > … (H1b holds);
   correctness probe 0.893 (baseline to beat in M5); FA vs AH ≈ 0.65 for entropy (open-set 0.54) but 0.80 for the
   correctness probe (H3 hint); familiarity FA 0.578 = AH 0.579 > UH 0.476 (H4 supported). Out-of-fold scores for M5:
-  `outputs/<run>/probes/oof_scores.jsonl` (kernel v12 output; save it as a dataset before M5 runs).
-- **Next (in order):** user fills `overrides/m3_manual_popqa_qwen2.5-3b.csv` (`manual_label`) → E15 offline rerun
-  with agreement → M3 done. Then M5 (classifier, ablations, baselines) on the probe OOF scores.
+  `outputs/<run>/probes/oof_scores.jsonl` (kernel v12 output = dataset `correctness-probes`).
+- **M3 closed without the manual check** (user decision, 2026-11-22: too time-consuming; E15 not run). M3 labels stay
+  as in E14b. Limitation for the thesis: no human agreement / AH precision numbers; the proxy is validated only by
+  "gold on page 97%". Known flaw (spot check): `answer_on_disambig` also fires when the answer is on the
+  disambiguation page only in the line about the subject itself ("Dallas is a large city in Texas", "The Departed …
+  directed by Martin Scorsese"): ≥ 12 of 207 `ambiguous_confirmed` rows are really AH. Small; sensitivity analysis only.
+- **M5 done** (E17, local CPU, 3.4 min, WARN = results): FA vs hallucination within-relation: hierarchy GB 0.860 >
+  SEP alone 0.833 > sampled SE 0.787 (H1b); **does not beat the correctness probe (0.900)**; FA vs AH 0.68 entropy-only,
+  not raised by lens / attention / familiarity (H2 yes, H3 negative for these features; correctness probe 0.80);
+  FA vs AH pooled 0.757 = relation-only 0.754 (H5). Flat 3-class beats two-stage. `classifier` stage reads
+  labels_m3 + entropy features + probe OOF scores (local copies in outputs/, from the Kaggle datasets).
+- **Next:** TriviaQA generation + EntityQuestions pilot (Kaggle GPU; H8, more open-set AH) — needs the user's
+  explicit go for `generation`. Then a T4 timing run (H1b cost table), M6 (OLMo + infini-gram).
   TriviaQA generation + EntityQuestions pilot can run on Kaggle in parallel (GPU, separate session).
 
 ## 1. What this project is
@@ -361,8 +371,8 @@ Plain-text tables and unicode bars only. `DASHBOARD.png` combines the stage's ke
 5. **TriviaQA generation** (+ subject location, correctness, subject states) — can run in a separate Kaggle session while M3–M5 are developed.
    **EntityQuestions pilot** (200 questions) in the same period; full run only if its correct/wrong mix helps open-set relations.
 6. **M3:** AH/UH labels with the Wikipedia proxy; ambiguity check on AH rows; manual check of ~100.
-7. **M4:** entropy-level probes + familiarity probe.
-8. **M5:** classifier, ablations, all baselines, bootstrap CIs, within-relation and group tables. Answers H1, H1b, H2, H3, H4, H5.
+7. **M4:** entropy-level probes + familiarity probe. Done (E16).
+8. **M5:** classifier, ablations, all baselines, bootstrap CIs, within-relation and group tables. Answers H1, H1b, H2, H3, H4, H5. Done (E17; previous single-threshold method not yet included).
 9. **M6:** OLMo + infini-gram proxy validation; cross-dataset transfer (H8); NQ-Open optional.
 10. **Optional:** H6 paraphrase stage, H7 disambiguation stage.
 
