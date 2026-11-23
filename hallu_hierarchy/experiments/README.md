@@ -23,3 +23,4 @@ One folder per experiment (CLAUDE.md §13). Raw reports: `../reports/`.
 | [E18](E18_m5_diagnostics/) | 2026-11-23 | Why does the correctness probe split FA vs AH but not AH vs UH? 3-class with the probe (local analysis) | Two axes: SEP splits UH from {FA, AH}, correctness probe splits FA from {AH, UH}; SEP + probe 3-class 0.814; probe's FA vs AH signal is mostly at the answer token and partly answer identity (same answer: 0.61) |
 
 Summary across experiments, by hypothesis: [HYPOTHESES.md](HYPOTHESES.md).
+| [E19](E19_ah_mechanism_tests/) | 2026-11-23 | Four AH mechanism tests: probe transfer, direct FA-vs-AH probe, association strength, type/role (local) | Direct FA-vs-AH probe 0.82 but 0.55 with identical answers, closed → open 0.59 → mostly answer identity; gold mentioned half as often for AH (fact salience 0.686 ≈ entropy); 38% overshadowing; 12% role swaps |

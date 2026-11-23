@@ -77,6 +77,18 @@ within, without C.
 Median probe scores: SEP (P high entropy) FA 0.03 · AH 0.15 · UH 0.95; correctness probe (P wrong) FA 0.08 ·
 **AH 0.64** · UH 0.97.
 
+### 1g. Four AH mechanism tests (E19)
+| test | result (within-relation AUROC) |
+|---|---|
+| correctness probe trained on closed-set, tested on open-set | correct vs wrong 0.828 (in-group 0.896) · **FA vs AH 0.593** (in-group 0.746) |
+| correctness probe trained on open-set, tested on closed-set | correct vs wrong 0.770 (in-group 0.892) · FA vs AH 0.743 (in-group 0.862) |
+| probe trained directly on FA vs AH (answer token, layers 20–28) | **0.824** (open 0.796, closed 0.908) |
+| … the same probe when FA and AH give the identical answer string | **0.545** |
+| gold-answer mentions on the subject's page (median) | FA 11 · AH 5 · UH 5 → as a score: FA vs AH 0.686, FA vs UH 0.731 |
+| AH answer mentioned more often than the gold on the subject page | 38% of AH |
+| answer is a valid value of the asked relation | FA 93% · AH 47% · UH 36% |
+| role swap (answer is only a value of another relation) | AH 12% (county → state, town → capital city, director → producer) · UH 7% |
+
 ---
 
 ## 2. Each hypothesis: the claim, and what the results say
@@ -100,8 +112,12 @@ answers (median SEP score FA 0.03, AH 0.15, UH 0.95). The model is confident whe
 **H3 — Non-confidence internal signals (ℓ*, layer-wise entropy, attention to the subject) partly recover AH vs FA.**
 *Not supported for these features.* Adding logit-lens entropy, ℓ*, attention and familiarity leaves FA vs AH at
 0.67–0.69 within-relation (entropy only: 0.684). **But the hidden state does contain the signal:** the direct
-correctness probe reaches 0.800, and 0.807 with everything. So the claim becomes: "AH is detectable from the
-hidden state, but not through the hand-made interpretable features we chose" (see section 3).
+correctness probe reaches 0.800, and 0.807 with everything. **E19 qualifies this:** a probe trained directly on
+FA vs AH reaches 0.824, but only **0.545 when FA and AH give the identical answer**, and the correctness probe's
+FA vs AH skill falls to 0.59 when it moves from closed- to open-set relations. Most of the hidden-state FA vs AH
+signal is *which answer was given* (an answer/relation prior), not a transferable "this fact is wrong" signal.
+Verdict: H3 is negative. AH stays hard even for hidden-state probes once the answer is controlled, which
+strengthens H2.
 
 **H4 — Subject familiarity separates UH but not AH (AH = familiar subject + unknown fact).**
 *Supported clearly.* The familiarity probe gives the same score to FA and AH subjects (0.578 vs 0.579; FA vs AH
@@ -126,8 +142,11 @@ ambiguous subjects are not what makes detection work. The regeneration test with
 
 **H8 — The detector transfers across datasets.** *Not tested yet* (needs TriviaQA / EntityQuestions).
 
-**H9 — Errors come from rare facts (fact frequency).** *Not tested yet* (M6, OLMo + infini-gram). Weak proxy:
-accuracy is U-shaped in s_pop (subject popularity), not monotone. Popularity of the subject alone is not fact frequency.
+**H9 — Errors come from rare facts (fact frequency).** *First evidence with a Wikipedia proxy (E19); the real
+test is M6 (OLMo + infini-gram).* The gold answer is mentioned about half as often on the subject's page for AH
+and UH (median 5) as for FA (11), and this "fact salience" alone separates FA vs AH (0.686) as well as entropy
+does. In 38% of AH the wrong answer is mentioned more than the gold (overshadowing). Subject popularity alone
+(s_pop) is not fact frequency: accuracy is U-shaped in it.
 
 ---
 
@@ -162,6 +181,13 @@ SEP at the answer token gives 0.75. UH is an uncertain guess; AH is a confident 
    score 0.58 for FA vs AH; AH and FA repeat answers equally often).
 4. **A residual consistency signal remains** (0.60–0.61 with the same answer string, also before the answer). Some
    internal "subject–answer fit" signal exists beyond the answer prior. This is the interpretable signal to look for.
+
+5. **E19 settles most of this:** a probe trained *only* on FA vs AH gets 0.82, but 0.545 with identical answers,
+   and the FA vs AH skill does not transfer between relation groups (0.59). The "knows it is wrong" signal for AH
+   is small. What looked like recovery is mostly the answer prior.
+6. **What does distinguish AH (E19):** less salient facts (the gold is mentioned 5 vs 11 times on the subject page),
+   overshadowing in 38% of cases, containment / role swaps in 12% (county → state, town → capital city,
+   director → producer). AH answers mostly have the right type (47% valid for the relation).
 
 **Working mechanism hypothesis for AH (to test):** the subject is recognised (familiar, H4), and the
 subject-enrichment step works. But the *relation-specific* attribute extraction retrieves the **most strongly
