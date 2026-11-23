@@ -20,3 +20,6 @@ One folder per experiment (CLAUDE.md §13). Raw reports: `../reports/`.
 | [E14](E14_m3_full/) | 2026-11-21 | M3 on all 11,113 wrong answers (page rule, ambiguity check, local) | PASS; gold on page 97%; AH 947 before / 740 (`answer_on_disambig`) / 510 (`disambig_exists`); 7 relations allow within-relation AH vs FA |
 | [E16](E16_m4_probes/) | 2026-11-22 | M4: can single-pass probes replace sampled entropies? H2/H4 first look (E15 = manual check, pending) | WARN (capital of; seq_nll gap); SE probe 0.827 within-rel > sampled SE 0.781; correctness probe 0.893; familiarity FA = AH > UH (H4) |
 | [E17](E17_m5_classifier/) | 2026-11-22 | M5: classifier, feature ablations, baselines (local; M3 without manual check) | WARN; hierarchy 0.860 within > sampled SE 0.787 (H1b) but < correctness probe 0.900; FA vs AH 0.68, not recovered by lens/attention/familiarity (H2 yes, H3 no); FA vs AH pooled = relation-only (H5) |
+| [E18](E18_m5_diagnostics/) | 2026-11-23 | Why does the correctness probe split FA vs AH but not AH vs UH? 3-class with the probe (local analysis) | Two axes: SEP splits UH from {FA, AH}, correctness probe splits FA from {AH, UH}; SEP + probe 3-class 0.814; probe's FA vs AH signal is mostly at the answer token and partly answer identity (same answer: 0.61) |
+
+Summary across experiments, by hypothesis: [HYPOTHESES.md](HYPOTHESES.md).
