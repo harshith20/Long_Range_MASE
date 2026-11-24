@@ -7,3 +7,6 @@ scikit-learn   # M4 probes (preinstalled on Kaggle)
 pyyaml
 tqdm
 pytest
+pandas      # M7 metadata tables (parquet)
+pyarrow
+tokenizers  # M7 BPE tokenizer

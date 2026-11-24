@@ -3,6 +3,23 @@
 This folder is a self-contained research project inside a larger repo. Work only inside
 `hallu_hierarchy/` unless told otherwise. Do not modify code outside this folder.
 
+## Current milestone: M7 (controlled exposure study)
+
+Plan and source of truth: [M7_SYNTHETIC_EXPOSURE_PLAN.md](M7_SYNTHETIC_EXPOSURE_PLAN.md) (decisions D1–D9 in §1.0).
+Code: `m7_synthetic/` (data generator in `m7_synthetic/data/`). Hypotheses H10–H15 in `experiments/HYPOTHESES.md`.
+Kaggle rules of §12 apply unchanged: every Kaggle run needs the user's explicit yes first.
+
+Run order (plan §8):
+1. **E20** data generator + budget printout + 1% dry-run corpus (CPU, local) — done, see `experiments/E20_m7_data_generator/`
+2. E21 S25 pilot: tokens/s, sanity checks on a small corpus (Kaggle)
+3. E22 fix data until sanity checks pass; freeze generator v1 (Kaggle)
+4. E23 S124 × 3 seeds, full corpus, all checkpoints (Kaggle)
+5. E24 measurements Axes 1–5 on E23 checkpoints (Kaggle)
+6. E25 Axes 6–7, subset (Kaggle)
+7. E26 Q124 × 3 seeds + same measurements (Kaggle)
+8. E27 B3 relation knockout on Qwen2.5-3B × PopQA (Kaggle)
+9. E28+ B1 injection, B2 (= M6), S350 if a 4090 is available
+
 ## 0. Current status (Claude Code updates this at the end of every milestone)
 
 - **M1 / M1.5 done.** Correctness pipeline, report and Kaggle notebook work.

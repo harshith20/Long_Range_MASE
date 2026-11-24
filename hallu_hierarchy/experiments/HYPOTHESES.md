@@ -148,6 +148,27 @@ and UH (median 5) as for FA (11), and this "fact salience" alone separates FA vs
 does. In 38% of AH the wrong answer is mentioned more than the gold (overshadowing). Subject popularity alone
 (s_pop) is not fact frequency: accuracy is U-shaped in it.
 
+**M7 hypotheses (synthetic exposure study; plan `../M7_SYNTHETIC_EXPOSURE_PLAN.md`).** Predictions written
+2026-11-24, before any M7 model was trained (plan §9). All *not tested yet*.
+
+**H10 — Label mix moves UH → AH → FA as exposures rise.** *Not tested yet.* Prediction: as the birth-city
+exposure count rises, wrong answers shift from UH to AH and then to FA; the AH share peaks at middle exposure counts.
+
+**H11 — AH share rises with the competitor ratio.** *Not tested yet.* Prediction: the AH share rises with the
+competitor ratio (work-city count ÷ birth-city count), log-linearly (cf. knowledge overshadowing, Zhang et al. 2025).
+
+**H12 — AH needs a familiar subject.** *Not tested yet.* Prediction: with low subject familiarity, wrong answers
+are mostly UH (matches H4).
+
+**H13 — Entropy separates UH from AH, not AH from FA, at every exposure count.** *Not tested yet.* Prediction:
+entropy / SEP separate UH from AH at every exposure count, but not AH from FA.
+
+**H14 — Hidden states encode how often a fact was seen.** *Not tested yet.* Prediction: a probe can decode
+log(exposure count) of the asked fact from hidden states (RQ2). Whether this separates AH from FA is the key open result.
+
+**H15 — AH answers depend less on the relation.** *Not tested yet.* Prediction: blocking last-token attention to
+the relation tokens changes AH outputs less than FA outputs; AH answers often stay the same when the relation is swapped.
+
 ---
 
 ## 3. Why the correctness probe separates FA vs AH but not AH vs UH

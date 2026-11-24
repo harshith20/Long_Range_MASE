@@ -24,3 +24,4 @@ One folder per experiment (CLAUDE.md §13). Raw reports: `../reports/`.
 
 Summary across experiments, by hypothesis: [HYPOTHESES.md](HYPOTHESES.md).
 | [E19](E19_ah_mechanism_tests/) | 2026-11-23 | Four AH mechanism tests: probe transfer, direct FA-vs-AH probe, association strength, type/role (local) | Direct FA-vs-AH probe 0.82 but 0.55 with identical answers, closed → open 0.59 → mostly answer identity; gold mentioned half as often for AH (fact salience 0.686 ≈ entropy); 38% overshadowing; 12% role swaps |
+| [E20](E20_m7_data_generator/) | 2026-11-24 | M7: synthetic biography generator, token budget, 1% dry run (local CPU) | Dry run OK (224 people, 9.5M tokens, all checks pass); full design ≈ 681M tokens, over the 200–300M target → cut needed before E21/E23 |
