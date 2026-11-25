@@ -14,7 +14,7 @@ from hallu_hierarchy.m7_synthetic.data.generate import (ATTRS, build_people, gen
 
 
 def small_cfg():
-    cfg = load_config("hallu_hierarchy/m7_synthetic/data/config_v0.yaml")
+    cfg = load_config("hallu_hierarchy/m7_synthetic/data/config_v1.yaml")
     cfg = copy.deepcopy(cfg)
     cfg["factors"].update({"exp_birth": [1, 10], "ratio": [0, 3], "work_cap": 20,
                            "familiarity": {"low": 2, "high": 5}, "people_per_cell_split": 3})
@@ -106,3 +106,16 @@ def test_refuses_overwrite(run):
     out, _, cfg = run
     with pytest.raises(FileExistsError):
         generate(cfg, load_templates(), out, fraction=1.0, quiet=True)
+
+
+def test_city_balance_full_design():
+    """E20b: with city_balance, every city gets about the same number of mentions, and all four cities differ."""
+    from hallu_hierarchy.m7_synthetic.data.generate import spread
+    cfg = load_config("hallu_hierarchy/m7_synthetic/data/config_v1.yaml")
+    people, meta = build_people(cfg)
+    assert spread(meta["city_load"])["max_over_median"] < 1.05
+    for p in people:
+        assert len({p["birth_city"], p["work_city"], p["university_city"], p["employer_city"]}) == 4
+    cfg["city_balance"] = False
+    _, meta0 = build_people(cfg)
+    assert spread(meta0["city_load"])["max_over_median"] > 1.3   # unbalanced design is clearly worse

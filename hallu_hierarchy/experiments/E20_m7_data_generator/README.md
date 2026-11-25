@@ -49,3 +49,21 @@ Checks on the dry run (all pass; also as unit tests in `tests/test_m7_generator.
    → ≈ 460 M total), and/or 75 instead of 150 people per split in the exp 300 / 1000 cells, and/or drop 1000.
 2. E21 S25 pilot on a small corpus (Kaggle; needs the user's explicit yes): tokens/s and sanity checks §3.
 3. Before E21: verify the Allen-Zhu Part 3.1 QA mixing recipe (D6).
+
+## E20b — budget cut and city-frequency balancing (2026-11-25, local, generator `gen-v0.2`, `config_v1.yaml`)
+Decisions D10–D14 in the plan. Changes: exp 1000 dropped; balancing mentions without filler; cities assigned so
+every city is mentioned about equally (birth, work, university, employer; org sentences weighted by the 40% of
+their templates that name the city).
+
+| | gen-v0.1 | gen-v0.2 |
+|---|---|---|
+| people | 16,800 | 14,400 |
+| tokens, full design (calibrated) | 681 M | **335 M** |
+| city mentions max / median (full design) | 1.52 | **1.01** |
+| chance-level AH, 10% corpus: uniform / frequency-weighted | — | 0.038 / 0.038 |
+| 10% corpus (pilot size) | — | 34.5 M tokens, 35 s |
+
+- Balancing only works with enough people: a 1% subset stays unbalanced (max/median 17), 10% is balanced → pilot uses 10%.
+- With balanced cities, frequency-weighted chance AH = uniform chance AH, so a "guess a frequent city" model can no
+  longer produce AH above chance.
+- Next: E21 S25 pilot on the 10% corpus (Kaggle, needs your yes) after the training code exists.

@@ -58,7 +58,7 @@ shards + metadata tables. Must print a token budget summary before writing anyth
 ### 1.2 Experimental factors (assigned per person)
 | factor | levels | what it controls |
 |---|---|---|
-| `exp_birth` | 1, 3, 10, 30, 100, 300, 1000 | exposures of the target fact (birth city) |
+| `exp_birth` | 1, 3, 10, 30, 100, 300 (1000 dropped, D10) | exposures of the target fact (birth city) |
 | `ratio` | 0 (work city never mentioned), 1, 10, 30 | competitor strength: work-city exposures = exp_birth × ratio (cap 3000) |
 | `familiarity` | low (other attributes 3× each), high (100× each) | how well-known the subject is. "Other attributes" = birth_date, university, major, employer (not work_city, which `ratio` sets) |
 | `split` | qa_train, qa_test (50/50) | whether QA pairs about this person appear in training |
@@ -139,6 +139,11 @@ If the budget is too large, drop the 1000 level or reduce people in high-count c
 | D8 | New dependencies: pandas, pyarrow, tokenizers | parquet + BPE |
 | D9 | Dry run = 1% of people per cell (2 per cell × split = 224 people, every cell present), full per-person exposure counts | every cell must exist |
 | — | ratio 0: work city never stated, so no work-city questions for these people in H15 | intended |
+| D10 | **Budget cut (E20b, 2026-11-25):** exp_birth 1000 dropped; balancing name mentions are one bare sentence (no generic filler); 150 people per cell kept → ≈ 335 M tokens (was 681 M) | 1000 cost 201 M tokens; 300 is already in the reliable-recall regime |
+| D11 | **City-frequency balancing (E20b):** birth, work, university and employer cities assigned greedily so every city gets about the same number of mentions (max/median 1.01 vs 1.52 at random); per-city load in `cities.parquet`; frequency-weighted chance AH stored per person | a model that does not know a fact guesses frequent cities, which would look like AH |
+| D12 | **Minimum version first:** S25 pilot + S124 × 1 seed, Axes 1–4 and 7 (H10, H11, H13, H14). Seeds, Q124 and Axis 6 only if those results are interesting | ≈ 45–50 GPU-h for the full plan vs ~30 GPU-h/week quota |
+| D13 | **Models:** GPT-2-style decoder trained from scratch (random init, not the pretrained GPT-2), rotary positions; S25 pilot, S124 main; Q124 (Qwen-style) as the architecture check; S350 only on a 4090 | 124M fits a T4 easily; capacity (~2 bits/param ≈ 250 Mbit) far exceeds the ~1 Mbit of facts, so exposure, not size, limits recall |
+| D14 | **Pilot corpus = 10% of people** (15 per cell × split, ≈ 35 M tokens); subsets are re-balanced (a 1% subset cannot be balanced: one heavy person = 3,000 mentions of one city) | |
 
 ---
 
@@ -268,9 +273,9 @@ exposure bucket as well as pooled (same lesson as H5: pooled numbers can be infl
 | step | exp ID | what | needs |
 |---|---|---|---|
 | 1 | E20 | Data generator + budget printout + 1% dry-run corpus | CPU (local) |
-| 2 | E21 | S25 pilot: measure tokens/s, run sanity checks on a small corpus | Kaggle |
+| 2 | E21 | S25 pilot on the 10% corpus (D14): measure tokens/s, run sanity checks | Kaggle |
 | 3 | E22 | Fix data until sanity checks pass; freeze generator v1 | Kaggle |
-| 4 | E23 | S124 × 3 seeds, full corpus, all checkpoints | Kaggle (~1 week quota) |
+| 4 | E23 | S124 × 1 seed first (D12), full corpus, all checkpoints; more seeds later | Kaggle |
 | 5 | E24 | Measurements Axes 1–5 on E23 checkpoints | Kaggle |
 | 6 | E25 | Axes 6–7 (subset) | Kaggle |
 | 7 | E26 | Q124 × 3 seeds + same measurements | Kaggle |

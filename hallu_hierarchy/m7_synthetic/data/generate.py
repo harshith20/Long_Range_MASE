@@ -1,7 +1,7 @@
 """M7 / E20: synthetic biography corpus with controlled exposure counts (plan §1).
 
 Usage (from the repo root):
-    python -m hallu_hierarchy.m7_synthetic.data.generate --config hallu_hierarchy/m7_synthetic/data/config_v0.yaml \
+    python -m hallu_hierarchy.m7_synthetic.data.generate --config hallu_hierarchy/m7_synthetic/data/config_v1.yaml \
         --budget-only
     python -m hallu_hierarchy.m7_synthetic.data.generate --config ... --fraction 0.01 \
         --out hallu_hierarchy/outputs/m7_synthetic/dryrun_1pct
@@ -67,28 +67,84 @@ def build_people(cfg: dict) -> tuple[list[dict], dict]:
                             if name not in used_names:
                                 used_names.add(name)
                                 break
-                        birth = rng.choice(cities)
-                        work = rng.choice([c for c in cities if c != birth])
-                        uni = rng.choice([u for u in lex["universities"]
-                                          if lex["university_city"][u] not in (birth, work)])
-                        ucity = lex["university_city"][uni]
-                        emp = rng.choice([x for x in lex["employers"]
-                                          if lex["employer_city"][x] not in (birth, work, ucity)])
                         work_n = min(e * r, fac["work_cap"])
                         people.append({
                             "person_id": len(people), "name": name, "cell_rank": k,
-                            "birth_date": random_date(rng), "birth_city": birth,
-                            "university": uni, "university_city": ucity,
-                            "major": rng.choice(lex["majors"]),
-                            "employer": emp, "employer_city": lex["employer_city"][emp],
-                            "work_city": work,
+                            "birth_date": random_date(rng), "major": rng.choice(lex["majors"]),
                             "exp_birth": e, "ratio": r, "familiarity": fam, "split": split,
                             "n_birth_date": fam_n, "n_birth_city": e, "n_university": fam_n,
                             "n_major": fam_n, "n_employer": fam_n, "n_work_city": work_n,
                             "eff_ratio": work_n / e, "capped": work_n < e * r,
                         })
-    people_meta = {"n_cities": len(cities), "cities": cities}
+    org_w = org_city_weight(load_templates())
+    assign_cities(people, lex, rng, cfg.get("city_balance", False), org_w)
+    people_meta = {"n_cities": len(cities), "cities": cities, "org_city_weight": org_w, "lex": lex,
+                   "city_load": city_load(people, cities, org_w)}
     return people, people_meta
+
+
+def org_city_weight(tpl: dict) -> dict[str, float]:
+    """Share of university / employer statement templates that also name the organisation's city."""
+    st = tpl["statements"]
+    return {"university": sum("{ucity}" in t for t in st["university"]["train"]) / len(st["university"]["train"]),
+            "employer": sum("{ecity}" in t for t in st["employer"]["train"]) / len(st["employer"]["train"])}
+
+
+def assign_cities(people: list[dict], lex: dict, rng: random.Random, balance: bool, org_w: dict) -> None:
+    """Birth city, work city, university and employer per person; all four cities differ (D4).
+
+    balance=False: uniform at random (gen-v0.1).
+    balance=True (E20b): heavy people (exp 300 x ratio 30 = 3,000 work-city sentences; high familiarity = 100
+    university/employer sentences) would otherwise make some cities far more frequent than others. A model that
+    does not know a fact tends to guess frequent cities, so those guesses would look like AH. Greedy fill, heaviest
+    person first: each of birth city, work city, university, employer goes to the least-loaded allowed city.
+    Load = expected sentences naming the city (org sentences weighted by org_w). Ties broken at random.
+    """
+    cities = lex["cities"]
+    if not balance:
+        for p in people:
+            birth = rng.choice(cities)
+            work = rng.choice([c for c in cities if c != birth])
+            uni = rng.choice([u for u in lex["universities"] if lex["university_city"][u] not in (birth, work)])
+            ucity = lex["university_city"][uni]
+            emp = rng.choice([x for x in lex["employers"] if lex["employer_city"][x] not in (birth, work, ucity)])
+            p.update({"birth_city": birth, "work_city": work, "university": uni, "university_city": ucity,
+                      "employer": emp, "employer_city": lex["employer_city"][emp]})
+        return
+    load = {c: 0.0 for c in cities}
+    tie = {c: rng.random() for c in cities}
+    key = lambda c: (load[c], tie[c])
+    unis, emps = list(lex["universities"]), list(lex["employers"])
+    rng.shuffle(unis)
+    rng.shuffle(emps)
+    weight = lambda p: p["n_birth_city"] + p["n_work_city"] + org_w["university"] * p["n_university"] \
+        + org_w["employer"] * p["n_employer"]
+    for p in sorted(people, key=lambda p: (-weight(p), rng.random())):
+        birth = min(cities, key=key)
+        load[birth] += p["n_birth_city"]
+        work = min((c for c in cities if c != birth), key=key)
+        load[work] += p["n_work_city"]
+        uni = min((u for u in unis if lex["university_city"][u] not in (birth, work)),
+                  key=lambda u: key(lex["university_city"][u]))
+        ucity = lex["university_city"][uni]
+        load[ucity] += org_w["university"] * p["n_university"]
+        emp = min((x for x in emps if lex["employer_city"][x] not in (birth, work, ucity)),
+                  key=lambda x: key(lex["employer_city"][x]))
+        load[lex["employer_city"][emp]] += org_w["employer"] * p["n_employer"]
+        p.update({"birth_city": birth, "work_city": work, "university": uni, "university_city": ucity,
+                  "employer": emp, "employer_city": lex["employer_city"][emp]})
+
+
+def city_load(people: list[dict], cities: list[str], org_w: dict) -> dict[str, int]:
+    """Expected sentences naming each city: birth + work sentences, plus university / employer sentences times
+    the share of their templates that name the organisation's city."""
+    load = {c: 0.0 for c in cities}
+    for p in people:
+        load[p["birth_city"]] += p["n_birth_city"]
+        load[p["work_city"]] += p["n_work_city"]
+        load[p["university_city"]] += org_w["university"] * p["n_university"]
+        load[p["employer_city"]] += org_w["employer"] * p["n_employer"]
+    return {c: round(v) for c, v in load.items()}
 
 
 def select_people(people: list[dict], fraction: float, n_per: int) -> tuple[list[dict], int]:
@@ -97,6 +153,28 @@ def select_people(people: list[dict], fraction: float, n_per: int) -> tuple[list
         return [dict(p) for p in people], n_per
     k = max(1, round(n_per * fraction))
     return [dict(p) for p in people if p["cell_rank"] < k], k
+
+
+def spread(load: dict[str, int]) -> dict:
+    v = np.array(list(load.values()), dtype=float)
+    return {"min": int(v.min()), "median": int(np.median(v)), "max": int(v.max()),
+            "max_over_median": round(float(v.max() / max(1.0, np.median(v))), 2),
+            "cv": round(float(v.std() / max(1.0, v.mean())), 3)}
+
+
+def print_city_spread(title: str, load: dict[str, int]) -> None:
+    s = spread(load)
+    print(f"  {title}: min {s['min']:,} | median {s['median']:,} | max {s['max']:,} "
+          f"(max/median {s['max_over_median']}, cv {s['cv']})")
+
+
+def add_freq_chance(people: list[dict], load: dict[str, int]) -> None:
+    """Chance-level AH if a model that does not know the fact guesses cities in proportion to their corpus
+    frequency: mentions of the linked cities / mentions of all cities except the true birth city (E20b)."""
+    total = sum(load.values())
+    for p in people:
+        rest = total - load[p["birth_city"]]
+        p["chance_ah_freq"] = sum(load[c] for c in p["linked_cities"]) / max(1, rest)
 
 
 # ----------------------------------------------------------------------------------------------- planning
@@ -398,11 +476,17 @@ def generate(cfg: dict, tpl: dict, out: Path, fraction: float, budget_only: bool
                      f"{cfg['budget']['chars_per_token_guess']})", est_full)
         n_capped = sum(p["capped"] for p in full)
         print(f"  capped cells: {n_capped:,} people do not reach their nominal ratio (D3)")
+        print_city_spread("city mentions, full design", meta["city_load"])
     if budget_only:
         return {"estimate_full": est_full}
 
     people, k = select_people(all_people, fraction, cfg["factors"]["people_per_cell_split"])
+    if fraction < 1.0 and cfg.get("city_balance", False):
+        # a subset of a balanced design is not balanced (few heavy people dominate): re-assign within the subset
+        assign_cities(people, meta["lex"], random.Random(cfg["seed"] + 5), True, meta["org_city_weight"])
     plan(people, cfg, n_cities)  # partners and cross docs within the selected people
+    run_load = city_load(people, meta["cities"], meta["org_city_weight"]) if fraction < 1.0 else meta["city_load"]
+    add_freq_chance(people, run_load)
     by_id = {p["person_id"]: p for p in people}
     if not quiet:
         print(f"\nrun: {len(people):,} people ({k} per cell × split), fraction {fraction}")
@@ -510,6 +594,8 @@ def generate(cfg: dict, tpl: dict, out: Path, fraction: float, budget_only: bool
     ptab["partners"] = ptab["partners"].apply(lambda x: list(map(int, x)))
     ptab["n_cross"] = [len(p["cross"]) for p in people]
     ptab.to_parquet(out / "people.parquet")
+    pd.DataFrame({"city": meta["cities"], "load_full_design": [meta["city_load"][c] for c in meta["cities"]],
+                  "load_this_run": [run_load[c] for c in meta["cities"]]}).to_parquet(out / "cities.parquet")
     shutil.copy(HERE / "templates.json", out / "templates.json")
     with open(out / "config.yaml", "w", encoding="utf-8") as f:
         yaml.safe_dump(cfg, f, sort_keys=False)
@@ -542,6 +628,9 @@ def generate(cfg: dict, tpl: dict, out: Path, fraction: float, budget_only: bool
               "measured_this_run": measured, "full_design_calibrated": calibrated,
               "tokens_per_name_mean": round(float(np.mean(name_tok)), 2),
               "tokens_per_city_mean": round(float(np.mean(city_tok)), 2),
+              "city_load_full_design": spread(meta["city_load"]), "city_load_this_run": spread(run_load),
+              "chance_ah_uniform_mean": round(float(np.mean([p["chance_ah"] for p in people])), 4),
+              "chance_ah_freq_mean": round(float(np.mean([p["chance_ah_freq"] for p in people])), 4),
               "eos_id": eos_id, "vocab_size": tok.get_vocab_size(),
               "seconds": round(time.time() - t0, 1)}
     with open(out / "budget.json", "w", encoding="utf-8") as f:
@@ -552,6 +641,9 @@ def generate(cfg: dict, tpl: dict, out: Path, fraction: float, budget_only: bool
         print(f"tokens per exposure {tpe:.1f} | per balancing doc {tpf:.1f} | per QA {tpq:.1f}")
         print(f"tokens per full name {budget['tokens_per_name_mean']} | per city {budget['tokens_per_city_mean']}")
         print("docs by context:", dict(ctx_docs))
+        print_city_spread("city mentions, this run", run_load)
+        print(f"chance-level AH: uniform {budget['chance_ah_uniform_mean']:.3f} | "
+              f"frequency-weighted {budget['chance_ah_freq_mean']:.3f}")
         print_budget("FULL DESIGN, calibrated with measured tokens per item", calibrated)
         print(f"\nwritten to {out} in {budget['seconds']} s")
     return budget
@@ -559,7 +651,7 @@ def generate(cfg: dict, tpl: dict, out: Path, fraction: float, budget_only: bool
 
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--config", default=str(HERE / "config_v0.yaml"))
+    ap.add_argument("--config", default=str(HERE / "config_v1.yaml"))
     ap.add_argument("--out", default=None)
     ap.add_argument("--fraction", type=float, default=1.0, help="share of people per cell (0.01 = dry run)")
     ap.add_argument("--budget-only", action="store_true")
