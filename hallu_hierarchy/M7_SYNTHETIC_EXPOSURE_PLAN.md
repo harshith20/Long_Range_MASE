@@ -131,10 +131,10 @@ If the budget is too large, drop the 1000 level or reduce people in high-count c
 |---|---|---|
 | D1 | Plan stays at `hallu_hierarchy/M7_SYNTHETIC_EXPOSURE_PLAN.md`; code in `hallu_hierarchy/m7_synthetic/` | CLAUDE.md: work only inside `hallu_hierarchy/` |
 | D2 | Fact-free name mentions balance subject familiarity across ratios | otherwise ratio 30 = thousands of extra name mentions, H11 and H12 confounded |
-| D3 | Keep the 3,000 cap; store effective ratio; flag capped cells | cap breaks the nominal crossing |
+| D3 | **Superseded (2026-11-26):** cells with exp_birth × ratio > 3,000 are dropped (300×30, 1000×10, 1000×30); generator asserts actual = labelled ratio | user's revised plan; keeps every ratio exact |
 | D4 | All four cities of a person differ; ≤ 3 partners; ≤ 5 cross-document exposures; store chance-level AH | keeps chance AH low and measurable |
 | D5 | One epoch, no reshuffle in the loader; log token offsets | exposure = sentence count only for one pass |
-| D6 | QA mixing is a parameter (default 3 per attribute); verify Allen-Zhu recipe before E21 | cannot verify the paper now |
+| D6 | **QA ≈ 17% of training tokens** (100 QA pairs per qa_train person and attribute, cycling the 6 train question templates; config_v1) | Allen-Zhu & Li Part 3.1 (verified 2026-11-26): mixed training uses QA_r = 0.8 of tokens; with augmented data ≥ 0.1 already gives ~96% out-of-distribution QA (their Fig. 10). 1% (v0) was far too little |
 | D7 | Templates written by hand, frozen in `templates.json` (statements 35 + 5 held out per attribute; questions 6 + 4 held out) | — |
 | D8 | New dependencies: pandas, pyarrow, tokenizers | parquet + BPE |
 | D9 | Dry run = 1% of people per cell (2 per cell × split = 224 people, every cell present), full per-person exposure counts | every cell must exist |
@@ -144,6 +144,10 @@ If the budget is too large, drop the 1000 level or reduce people in high-count c
 | D12 | **Minimum version first:** S25 pilot + S124 × 1 seed, Axes 1–4 and 7 (H10, H11, H13, H14). Seeds, Q124 and Axis 6 only if those results are interesting | ≈ 45–50 GPU-h for the full plan vs ~30 GPU-h/week quota |
 | D13 | **Models:** GPT-2-style decoder trained from scratch (random init, not the pretrained GPT-2), rotary positions; S25 pilot, S124 main; Q124 (Qwen-style) as the architecture check; S350 only on a 4090 | 124M fits a T4 easily; capacity (~2 bits/param ≈ 250 Mbit) far exceeds the ~1 Mbit of facts, so exposure, not size, limits recall |
 | D14 | **Pilot corpus = 10% of people** (15 per cell × split, ≈ 35 M tokens); subsets are re-balanced (a 1% subset cannot be balanced: one heavy person = 3,000 mentions of one city) | |
+| D15 | Model: GPT-NeoX-style with **rotary positions** (rotary on 1/4 of head dims), GPT-2-small body (12 × 12 × 768); AdamW wd 0.1, eps 1e-6, lr 1e-3 → 1e-4 cosine, warmup ≤ 1000; batch 32 × 512 (~16.8k steps); fp16 on 2 × T4 (DDP) | Allen-Zhu Part 3.1 App. B–C (rotary instead of learned positions; their optimizer); smaller batch for more steps in one pass |
+| D16 | Every city is one BPE token (city names put into the tokenizer training text; generator checks it) | the answer is decided at one token: labels, logit features and samples from one forward pass |
+| D17 | Main run size (2026-11-26, merged with E20b): 100 people per cell × split, 46 cells (exp 1000 and 300×30 dropped) → 9,200 people, ≈ 270M tokens incl. QA. User chose S124 directly (no S25 pilot; supersedes D12/D14 for now); a 1% smoke corpus only checks the mechanics on Kaggle | 1–2 day deadline; city balancing at 1% does not matter for a mechanics check |
+| D18 | Evaluation prompts: QA (train template), QA (held-out template), completion "{name} was born in"; probe states at the last name token (Allen-Zhu Q-probing) and last prompt token, all layers | completion needs no QA extraction (fallback if extraction is late); Q-probing is the paper's storage test |
 
 ---
 

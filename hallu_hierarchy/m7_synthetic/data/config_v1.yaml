@@ -1,5 +1,6 @@
-# M7 data generator config (plan §1, decisions D1–D9). Generator version is recorded in budget.json.
-generator_version: gen-v0.2   # E20b: exp 1000 dropped, no filler around balancing mentions, city balancing
+# M7 data generator config v1 (E21+). Merges E20b (lab, 2026-11-25: exp 1000 dropped, city balancing, bare balancing
+# sentences) with 2026-11-26 (cells over the cap dropped, QA share per Allen-Zhu 3.1, single-token cities).
+generator_version: gen-v1.0
 seed: 7020
 
 lexicon:
@@ -12,12 +13,13 @@ lexicon:
 
 factors:
   exp_birth: [1, 3, 10, 30, 100, 300]   # 1000 dropped (E20b: budget)
-  ratio: [0, 1, 10, 30]          # work-city exposures = exp_birth * ratio, capped
+  ratio: [0, 1, 10, 30]          # work-city exposures = exp_birth * ratio
   work_cap: 3000
+  drop_over_cap: true            # plan §1.2: cells with exp_birth * ratio > 3,000 are dropped -> (300, 30)
   familiarity: {low: 3, high: 100}   # exposures of each of birth_date, university, major, employer
-  people_per_cell_split: 150     # per (exp_birth, ratio, familiarity) cell and per split -> 16,800 people
+  people_per_cell_split: 100     # per cell and split; 46 cells -> 9,200 people (~270M tokens; 1-2 day deadline)
 
-city_balance: true               # E20b: spread birth/work-city mentions evenly over cities (frequency-guess confound)
+city_balance: true               # E20b: spread city mentions evenly over cities (frequency-guess confound)
 name_balance: true               # D2: fact-free name mentions up to the ratio-max name count of the cell
 
 cooccurrence:                    # D4
@@ -29,14 +31,14 @@ context_weights: {bio: 0.35, standalone: 0.25, news: 0.2, table: 0.2}   # cross 
 bio_attrs: [2, 5]                # facts per biography paragraph (if available)
 table_attrs: [1, 4]
 news_filler: [2, 3]              # fact-free sentences per news snippet
-name_only_filler: [0, 0]         # E20b: balancing mention = one bare sentence (was [0, 2])
+name_only_filler: [0, 0]         # E20b: balancing mention = one bare sentence
 
-qa:                              # D6: parameter until the Allen-Zhu recipe is verified
-  questions_per_attr: 3
+qa:                              # D6, Allen-Zhu 3.1 mixed training: QA ~15-20% of tokens (their Fig. 10)
+  pairs_per_attr: 100            # per qa_train person and attribute, cycling the 6 train question templates
 
 tokenizer:
   vocab_size: 8192
-  path: null                     # null = train a new BPE (on one biography per person + templates)
+  path: null                     # null = train a new BPE (one biography per person + templates + every city)
 
 output:
   shuffle_buckets: 64

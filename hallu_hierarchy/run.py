@@ -26,6 +26,7 @@ STAGES = {
     "labeling": "hallu_hierarchy.labeling.stage",
     "probes": "hallu_hierarchy.probes.stage",
     "classifier": "hallu_hierarchy.classifier.stage",
+    "m7": "hallu_hierarchy.m7_synthetic.stage",  # M7: synthetic corpus -> train from scratch -> evaluate
 }
 ALIASES = {"generate": "generation"}
 

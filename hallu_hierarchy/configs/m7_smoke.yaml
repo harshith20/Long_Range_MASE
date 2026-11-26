@@ -1,0 +1,16 @@
+# M7 smoke test on Kaggle: 1% corpus, S124 for 150 steps on 2 x T4 (measures tokens/s, DDP, fp16, eval)
+run_name: m7_smoke
+seed: 0
+milestone: M7
+model:
+  id: m7-s124-from-scratch
+data:
+  dataset: m7-synthetic-gen-v1.0
+m7:
+  generator_config: m7_synthetic/data/config_v1.yaml
+  fraction: 0.01
+  model: s124
+  batch: 32
+  max_steps: 150
+  time_limit_h: 10.5
+  states_ckpts: last

@@ -1,11 +1,29 @@
 {
-  "_comment": "Settings for scripts/kaggle_run.sh (CLAUDE.md §12). Stage lists are rule 3: CPU-only stages run with the GPU off, GPU stages with it on. (Not named kaggle.json: .claude/settings.json denies any command mentioning that name.)",
+  "_comment": "Settings for scripts/kaggle_run.sh (CLAUDE.md \u00a712). Stage lists are rule 3: CPU-only stages run with the GPU off, GPU stages with it on. (Not named kaggle.json: .claude/settings.json denies any command mentioning that name.)",
   "kernel_metadata": "kaggle/kernel-metadata.json",
   "notebook": "kaggle/run.ipynb",
   "default_config": "configs/qwen3b_popqa_full.yaml",
-  "gpu_stages": ["generation", "subject_states", "entropy", "paraphrase", "disambig"],
-  "cpu_stages": ["data", "correctness", "labeling", "probes", "classifier", "eval", "reporting"],
+  "gpu_stages": [
+    "generation",
+    "subject_states",
+    "entropy",
+    "paraphrase",
+    "disambig",
+    "m7"
+  ],
+  "cpu_stages": [
+    "data",
+    "correctness",
+    "labeling",
+    "probes",
+    "classifier",
+    "eval",
+    "reporting"
+  ],
   "accelerator": "NvidiaTeslaT4",
   "poll_seconds": 60,
-  "max_wait_minutes": {"cpu": 60, "gpu": 360}
+  "max_wait_minutes": {
+    "cpu": 60,
+    "gpu": 720
+  }
 }

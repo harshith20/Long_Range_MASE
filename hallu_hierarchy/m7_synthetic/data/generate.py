@@ -59,6 +59,8 @@ def build_people(cfg: dict) -> tuple[list[dict], dict]:
     people: list[dict] = []
     for e in fac["exp_birth"]:
         for r in fac["ratio"]:
+            if fac.get("drop_over_cap") and e * r > fac["work_cap"]:
+                continue  # plan §1.2 cap rule: drop the cell instead of capping its ratio
             for fam, fam_n in fac["familiarity"].items():
                 for split in ("qa_train", "qa_test"):
                     for k in range(n_per):
@@ -68,6 +70,8 @@ def build_people(cfg: dict) -> tuple[list[dict], dict]:
                                 used_names.add(name)
                                 break
                         work_n = min(e * r, fac["work_cap"])
+                        if fac.get("drop_over_cap"):
+                            assert work_n == e * r, "actual ratio must equal the labelled ratio"
                         people.append({
                             "person_id": len(people), "name": name, "cell_rank": k,
                             "birth_date": random_date(rng), "major": rng.choice(lex["majors"]),
@@ -194,7 +198,9 @@ def plan(people: list[dict], cfg: dict, n_cities: int) -> None:
                 partners[a].add(b)
                 partners[b].add(a)
     anchor_mentions: Counter = Counter()
-    r_max = max(fac["ratio"])
+    def r_max(e: int) -> int:  # largest ratio that exists for this exp_birth level
+        ok = [r for r in fac["ratio"] if not (fac.get("drop_over_cap") and e * r > fac["work_cap"])]
+        return max(ok)
     for p in people:
         pid = p["person_id"]
         p["partners"] = sorted(partners[pid])
@@ -212,7 +218,8 @@ def plan(people: list[dict], cfg: dict, n_cities: int) -> None:
             cross.append((anchor, attr))
         p["cross"] = cross
         fam_n = p["n_birth_date"]
-        p["name_target"] = p["exp_birth"] + min(r_max * p["exp_birth"], fac["work_cap"]) + len(OTHER_ATTRS) * fam_n
+        e = p["exp_birth"]
+        p["name_target"] = e + min(r_max(e) * e, fac["work_cap"]) + len(OTHER_ATTRS) * fam_n
     for p in people:
         p["anchor_mentions"] = anchor_mentions[p["person_id"]]
         # linked cities = cities that co-occur with this person in text (D4)
@@ -244,7 +251,7 @@ def planned_counts(p: dict, cfg: dict) -> dict:
     qa = 0
     if p["split"] == "qa_train":
         n_attrs = len(ATTRS) - (1 if p["n_work_city"] == 0 else 0)
-        qa = n_attrs * cfg["qa"]["questions_per_attr"]
+        qa = n_attrs * cfg["qa"]["pairs_per_attr"]
     return {"facts": facts, "filler": filler, "qa": qa}
 
 
@@ -414,7 +421,10 @@ class Renderer:
                 if a == "work_city" and p["n_work_city"] == 0:
                     continue  # would expose the work city at ratio 0
                 qs = tpl["questions"][a]["train"]
-                for qi in rng.sample(range(len(qs)), cfg["qa"]["questions_per_attr"]):
+                # D6 (Allen-Zhu Part 3.1): QA is a large share of training; cycle through the train templates
+                order = rng.sample(range(len(qs)), len(qs))
+                for j in range(cfg["qa"]["pairs_per_attr"]):
+                    qi = order[j % len(qs)]
                     q = qs[qi].format(name=p["name"])
                     docs.append({"t": f"Q: {q}\nA: {self.value(p, a)}", "k": "qa", "e": [[pid, a, "qa", qi]],
                                  "c": None})
@@ -433,7 +443,7 @@ def _weighted_sample(rng: random.Random, items: list[str], weights: list[int], k
 
 
 # ----------------------------------------------------------------------------------------------- tokenizer
-def train_tokenizer(people: list[dict], tpl: dict, renderer: Renderer, vocab_size: int):
+def train_tokenizer(people: list[dict], tpl: dict, renderer: Renderer, vocab_size: int, cities: list[str]):
     """BPE on one full biography per person (of the FULL design) + every template, so that a person's
     exposure count does not decide whether their name becomes a single token."""
     from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
@@ -451,6 +461,8 @@ def train_tokenizer(people: list[dict], tpl: dict, renderer: Renderer, vocab_siz
             yield s
         for a in ATTRS:
             yield " | ".join(tpl["table_headers"][a])
+        for _ in range(3):  # every city becomes one token: the answer is decided at a single token
+            yield " " + " ".join(cities)
 
     tok = Tokenizer(models.BPE())
     tok.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
@@ -521,7 +533,7 @@ def generate(cfg: dict, tpl: dict, out: Path, fraction: float, budget_only: bool
         tok = Tokenizer.from_file(tcfg["path"])
     else:
         full_by_id = {p["person_id"]: p for p in full}
-        tok = train_tokenizer(full, tpl, Renderer(tpl, cfg, full_by_id), tcfg["vocab_size"])
+        tok = train_tokenizer(full, tpl, Renderer(tpl, cfg, full_by_id), tcfg["vocab_size"], meta["cities"])
     tok.save(str(out / "tokenizer.json"))
     eos_id = tok.token_to_id(EOS)
     log(f"tokenizer ready ({tok.get_vocab_size()} tokens) at {time.time() - t0:.1f} s")
@@ -631,6 +643,7 @@ def generate(cfg: dict, tpl: dict, out: Path, fraction: float, budget_only: bool
               "city_load_full_design": spread(meta["city_load"]), "city_load_this_run": spread(run_load),
               "chance_ah_uniform_mean": round(float(np.mean([p["chance_ah"] for p in people])), 4),
               "chance_ah_freq_mean": round(float(np.mean([p["chance_ah_freq"] for p in people])), 4),
+              "cities_multi_token": int(sum(n > 1 for n in city_tok)),  # evaluation needs 0 (answer = 1 token)
               "eos_id": eos_id, "vocab_size": tok.get_vocab_size(),
               "seconds": round(time.time() - t0, 1)}
     with open(out / "budget.json", "w", encoding="utf-8") as f:
@@ -640,6 +653,8 @@ def generate(cfg: dict, tpl: dict, out: Path, fraction: float, budget_only: bool
         print(f"docs {doc_idx:,} | tokens {offset / 1e6:,.2f} M | exposures {n_exp:,} | balancing {n_fill:,} | QA {n_qa:,}")
         print(f"tokens per exposure {tpe:.1f} | per balancing doc {tpf:.1f} | per QA {tpq:.1f}")
         print(f"tokens per full name {budget['tokens_per_name_mean']} | per city {budget['tokens_per_city_mean']}")
+        if budget["cities_multi_token"]:
+            print(f"WARNING: {budget['cities_multi_token']} cities are not single tokens; evaluation will refuse")
         print("docs by context:", dict(ctx_docs))
         print_city_spread("city mentions, this run", run_load)
         print(f"chance-level AH: uniform {budget['chance_ah_uniform_mean']:.3f} | "

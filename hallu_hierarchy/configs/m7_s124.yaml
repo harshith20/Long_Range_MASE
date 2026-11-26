@@ -1,0 +1,16 @@
+# M7 main run (E22): full corpus (~275M tokens), S124 one pass on 2 x T4, ~9 checkpoints, evaluation of all
+run_name: m7_s124_seed0
+seed: 0
+milestone: M7
+model:
+  id: m7-s124-from-scratch
+data:
+  dataset: m7-synthetic-gen-v1.0
+m7:
+  generator_config: m7_synthetic/data/config_v1.yaml
+  fraction: 1.0
+  model: s124
+  batch: 32
+  max_steps: null
+  time_limit_h: 10.5
+  states_ckpts: all

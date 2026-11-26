@@ -17,9 +17,11 @@ def small_cfg():
     cfg = load_config("hallu_hierarchy/m7_synthetic/data/config_v1.yaml")
     cfg = copy.deepcopy(cfg)
     cfg["factors"].update({"exp_birth": [1, 10], "ratio": [0, 3], "work_cap": 20,
-                           "familiarity": {"low": 2, "high": 5}, "people_per_cell_split": 3})
+                           "familiarity": {"low": 2, "high": 5}, "people_per_cell_split": 3,
+                           "drop_over_cap": False})  # capping tested here; dropping in its own test
+    cfg["qa"] = {"pairs_per_attr": 3}
     cfg["lexicon"].update({"n_cities": 30, "n_universities": 10, "n_employers": 12})
-    cfg["tokenizer"]["vocab_size"] = 600
+    cfg["tokenizer"]["vocab_size"] = 3000
     cfg["output"]["shuffle_buckets"] = 4
     return cfg
 
@@ -119,3 +121,29 @@ def test_city_balance_full_design():
     cfg["city_balance"] = False
     _, meta0 = build_people(cfg)
     assert spread(meta0["city_load"])["max_over_median"] > 1.3   # unbalanced design is clearly worse
+
+
+def test_drop_over_cap_keeps_ratios_exact():
+    cfg = small_cfg()
+    cfg["factors"]["drop_over_cap"] = True
+    people, _ = build_people(cfg)
+    cells = {(p["exp_birth"], p["ratio"]) for p in people}
+    assert (10, 3) not in cells and (1, 3) in cells  # 10 x 3 = 30 > cap 20 -> dropped
+    assert all(p["n_work_city"] == p["exp_birth"] * p["ratio"] for p in people)
+
+
+def test_train_and_eval_smoke(tmp_path):
+    pytest.importorskip("torch")
+    pytest.importorskip("transformers")
+    from hallu_hierarchy.m7_synthetic.eval.evaluate import main as eval_main
+    from hallu_hierarchy.m7_synthetic.train.train import main as train_main
+    data = tmp_path / "data"
+    generate(small_cfg(), load_templates(), data, fraction=1.0, quiet=True)
+    run = tmp_path / "run"
+    train_main(["--data", str(data), "--out", str(run), "--model", "tiny", "--batch", "4", "--seq", "128",
+                "--max-steps", "6", "--ckpt-fracs", "0.5,1.0"])
+    assert (run / "DONE").exists() and len(list(run.glob("ckpt_*"))) == 2
+    eval_main(["--data", str(data), "--run", str(run), "--ckpt", "last", "--batch", "16"])
+    r = pd.read_parquet(next((run / "eval").glob("ckpt_*")) / "results.parquet")
+    assert set(r.prompt) == {"qa", "qa_heldout", "completion"}
+    assert r.label.isin(["FA", "AH", "UH", "other"]).all()

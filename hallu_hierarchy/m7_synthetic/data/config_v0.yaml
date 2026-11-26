@@ -31,7 +31,7 @@ news_filler: [2, 3]              # fact-free sentences per news snippet
 name_only_filler: [0, 2]         # generic sentences next to a balancing name mention
 
 qa:                              # D6: parameter until the Allen-Zhu recipe is verified
-  questions_per_attr: 3
+  pairs_per_attr: 3
 
 tokenizer:
   vocab_size: 8192
