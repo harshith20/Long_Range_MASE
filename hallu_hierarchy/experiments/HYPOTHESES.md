@@ -151,10 +151,10 @@ does. In 38% of AH the wrong answer is mentioned more than the gold (overshadowi
 **M7 hypotheses (synthetic exposure study; plan `../M7_SYNTHETIC_EXPOSURE_PLAN.md`).** Predictions written
 2026-11-24, before any M7 model was trained (plan §9). All *not tested yet*.
 
-**H10 — Label mix moves UH → AH → FA as exposures rise.** *Not tested yet.* Prediction: as the birth-city
+**H10 — Label mix moves UH → AH → FA as exposures rise.** *Open (E22): the switch from unknown to known happens between exp 1 and 10, so the grid is too coarse; AH 14% → 19% of wrong answers from exp 1 to 3.* Prediction: as the birth-city
 exposure count rises, wrong answers shift from UH to AH and then to FA; the AH share peaks at middle exposure counts.
 
-**H11 — AH share rises with the competitor ratio.** *Not tested yet.* Prediction: the AH share rises with the
+**H11 — AH share rises with the competitor ratio.** *Supported, one seed (E22): AH share of wrong answers 5.3 / 9.0 / 18.7 / 27.8% at ratio 0 / 1 / 10 / 30 (chance 3.8%), almost all = the work city.* Prediction: the AH share rises with the
 competitor ratio (work-city count ÷ birth-city count), log-linearly (cf. knowledge overshadowing, Zhang et al. 2025).
 
 **H12 — AH needs a familiar subject.** *Not tested yet.* Prediction: with low subject familiarity, wrong answers
