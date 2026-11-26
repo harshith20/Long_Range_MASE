@@ -67,7 +67,7 @@ def run(cfg: dict[str, Any], part: Any = None) -> None:
     if m.get("max_steps"):
         args += ["--max-steps", str(m["max_steps"])]
     if n_gpu > 1:
-        _sh([sys.executable, "-m", "torch.distributed.run", "--standalone", f"--nproc_per_node={n_gpu}", *args[1:]])
+        _sh([sys.executable, "-m", "torch.distributed.run", "--standalone", f"--nproc_per_node={n_gpu}", *args])
     else:
         _sh([sys.executable, *args])
     t_train = time.time() - t0 - t_gen

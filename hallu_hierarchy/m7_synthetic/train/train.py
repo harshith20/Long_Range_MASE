@@ -121,9 +121,10 @@ def main(argv=None):
     rank, world = 0, 1
     if ddp:
         import torch.distributed as dist
-        dist.init_process_group("nccl")
+        dist.init_process_group("nccl" if torch.cuda.is_available() else "gloo")  # gloo: local CPU test
         rank, world = dist.get_rank(), dist.get_world_size()
-        torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+        if torch.cuda.is_available():
+            torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
     device = torch.device(f"cuda:{torch.cuda.current_device()}" if torch.cuda.is_available() else "cpu")
     main_proc = rank == 0
     torch.manual_seed(args.seed)
@@ -172,7 +173,7 @@ def main(argv=None):
     train_model = model
     if ddp:
         from torch.nn.parallel import DistributedDataParallel as DDP
-        train_model = DDP(model, device_ids=[device.index])
+        train_model = DDP(model, device_ids=[device.index] if device.type == "cuda" else None)
 
     meta = {"model": args.model, "params": n_params, "non_embedding_params": n_body, "steps": total,
             "batch": args.batch, "seq": args.seq, "tokens_per_step": args.batch * args.seq, "warmup": warmup,
