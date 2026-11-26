@@ -157,10 +157,10 @@ exposure count rises, wrong answers shift from UH to AH and then to FA; the AH s
 **H11 — AH share rises with the competitor ratio.** *Supported, one seed (E22): AH share of wrong answers 5.3 / 9.0 / 18.7 / 27.8% at ratio 0 / 1 / 10 / 30 (chance 3.8%), almost all = the work city.* Prediction: the AH share rises with the
 competitor ratio (work-city count ÷ birth-city count), log-linearly (cf. knowledge overshadowing, Zhang et al. 2025).
 
-**H12 — AH needs a familiar subject.** *Not tested yet.* Prediction: with low subject familiarity, wrong answers
+**H12 — AH needs a familiar subject.** *Supported, one seed (E23): AH share of wrong answers at ratio 30 is 37% high vs 19% low familiarity (ratio 1: 15% vs 5%).* Prediction: with low subject familiarity, wrong answers
 are mostly UH (matches H4).
 
-**H13 — Entropy separates UH from AH, not AH from FA, at every exposure count.** *Not tested yet.* Prediction:
+**H13 — Entropy separates UH from AH, not AH from FA, at every exposure count.** *Not supported (E23, exp 1–3): FA vs AH 0.77, AH vs UH 0.63; AH here is low-confidence fallback, not confident error.* Prediction:
 entropy / SEP separate UH from AH at every exposure count, but not AH from FA.
 
 **H14 — Hidden states encode how often a fact was seen.** *Not tested yet.* Prediction: a probe can decode
