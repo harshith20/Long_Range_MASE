@@ -66,6 +66,10 @@ def run(cfg: dict[str, Any], part: Any = None) -> None:
             "--time-limit-h", str(m.get("time_limit_h", 10.5)), "--seed", str(cfg.get("seed", 0))]
     if m.get("max_steps"):
         args += ["--max-steps", str(m["max_steps"])]
+    if m.get("ckpt_fracs"):
+        args += ["--ckpt-fracs", str(m["ckpt_fracs"])]
+    if m.get("log_every"):
+        args += ["--log-every", str(m["log_every"])]
     if n_gpu > 1:
         _sh([sys.executable, "-m", "torch.distributed.run", "--standalone", f"--nproc_per_node={n_gpu}", *args])
     else:
@@ -83,7 +87,7 @@ def run(cfg: dict[str, Any], part: Any = None) -> None:
     log = [json.loads(ln) for ln in (train_dir / "train_log.jsonl").read_text().splitlines() if ln.strip()]
     steps = [r for r in log if "loss" in r]
     ckpts = [r for r in log if "checkpoint" in r]
-    tps = sorted(r["tok_per_s"] for r in steps[1:]) or [0]
+    tps = sorted(r["tok_per_s"] for r in steps[1:]) or [r["tok_per_s"] for r in steps] or [0]
     import pandas as pd
     res = pd.concat([pd.read_parquet(p) for p in sorted((train_dir / "eval").glob("ckpt_*/results.parquet"))])
     last = res[res.checkpoint == res.checkpoint.max()]

@@ -157,7 +157,9 @@ def main(argv=None):
     opt = torch.optim.AdamW([{"params": decay, "weight_decay": args.wd}, {"params": no_decay, "weight_decay": 0.0}],
                             lr=args.lr, betas=(0.9, 0.98), eps=1e-6, fused=device.type == "cuda")
     use_amp = device.type == "cuda"
-    amp_dtype = torch.bfloat16 if use_amp and torch.cuda.is_bf16_supported() else torch.float16
+    # bf16 only with native support (compute capability >= 8, e.g. A100/4090); T4 (7.5) only emulates it -> fp16
+    native_bf16 = use_amp and torch.cuda.get_device_capability(device)[0] >= 8
+    amp_dtype = torch.bfloat16 if native_bf16 else torch.float16
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp and amp_dtype == torch.float16)
 
     step = 0
@@ -235,6 +237,7 @@ def main(argv=None):
                 print(rec, flush=True)
             torch.save({"model": model.state_dict(), "opt": opt.state_dict(), "scaler": scaler.state_dict(),
                         "step": step}, state_path)
+            t_last, tok_last = time.time(), 0  # keep checkpoint time out of tokens/s
         if out_of_time:
             if main_proc:
                 print(f"time limit reached at step {step}; state saved, rerun to resume", flush=True)

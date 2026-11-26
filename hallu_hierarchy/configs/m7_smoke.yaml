@@ -14,3 +14,5 @@ m7:
   max_steps: 150
   time_limit_h: 10.5
   states_ckpts: last
+  ckpt_fracs: "0.5,1.0"        # few checkpoints: this run measures training speed
+  log_every: 10
