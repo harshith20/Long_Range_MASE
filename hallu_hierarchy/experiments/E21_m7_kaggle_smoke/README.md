@@ -30,3 +30,11 @@ to plan the full S124 run (plan §8; D15–D18). Not a results run: 150 steps ca
 1. Rerun the smoke test with fp16 and clean speed logging (needs the user's yes) → tokens/s.
 2. If ≥ ~15k tokens/s: full S124 run (`configs/m7_s124.yaml`, ~270M tokens) in one session; otherwise cut
    the corpus (people per cell) or split the run across sessions (resume from `state.pt`).
+
+## v15 rerun (commit b4cab48, fp16, 2 checkpoints) — report `reports/2026-11-26_m7_smoke_m7_v15.md`
+| | v14 (bf16 emulated) | v15 (fp16) |
+|---|---|---|
+| median tokens/s (2 × T4) | 6,590 (with checkpoint overhead) | **44,787** |
+| training 150 steps | 408 s | 90 s |
+| final loss | 0.92 | 0.88 |
+- Full run estimate (~270M tokens): ≈ 1.7 h training + ~20 min corpus + checkpoints/evaluation → ≈ 2.5–3 h, one session.
